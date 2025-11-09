@@ -1,0 +1,50 @@
+{
+  "name": "patient-planning-simulator",
+  "version": "2.0.0",
+  "description": "Web-based simulatie programma voor patiënt planning met React, Tailwind CSS en Prisma database",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "postinstall": "prisma generate",
+    "prisma:studio": "prisma studio",
+    "prisma:push": "prisma db push",
+    "prisma:migrate": "prisma migrate dev"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.0",
+    "chart.js": "^4.4.1",
+    "date-fns": "^3.0.0",
+    "next": "14.0.4",
+    "react": "^18.2.0",
+    "react-chartjs-2": "^5.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "prisma": "^5.7.0",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.3",
+    "xlsx": "^0.18.5"
+  },
+  "keywords": [
+    "patient",
+    "planning",
+    "scheduling",
+    "healthcare",
+    "simulation",
+    "workload",
+    "analytics",
+    "react",
+    "nextjs",
+    "prisma",
+    "tailwindcss"
+  ],
+  "author": "",
+  "license": "MIT"
+}

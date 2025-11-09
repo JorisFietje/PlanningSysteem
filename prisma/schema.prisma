@@ -1,0 +1,97 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Patient {
+  id              String   @id @default(cuid())
+  name            String
+  startTime       String   // Time in HH:MM format
+  scheduledDate   String   // Date in YYYY-MM-DD format (ISO 8601)
+  medicationType  String   // Type of medication/infusion (e.g., "infliximab_5mg", "rituximab_1000mg_day1")
+  treatmentNumber Int      @default(1) // 1=first time, 2=2nd-3rd, 3=4th-6th, 4=7th+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  actions         Action[]
+
+  @@index([scheduledDate]) // Index for faster date filtering
+  @@map("patients")
+}
+
+model Action {
+  id             String   @id @default(cuid())
+  name           String
+  duration       Int      // Duration on schedule (0 for checks during infusion)
+  staff          String?
+  type           String?  // 'setup', 'infusion', 'check', 'removal', 'observation', 'flush'
+  actualDuration Int?     // Actual staff work time (for checks during infusion)
+  patientId      String
+  patient        Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@map("actions")
+}
+
+// Week Planning Models
+model WeekPlan {
+  id              String   @id @default(cuid())
+  weekStartDate   String   // YYYY-MM-DD format (Monday of the week)
+  weekEndDate     String   // YYYY-MM-DD format (Friday of the week)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  staffSchedules  WeekStaffSchedule[]
+  treatments      WeekTreatment[]
+  generatedPatients String? // JSON string of generated patient IDs
+
+  @@unique([weekStartDate])
+  @@index([weekStartDate])
+  @@map("week_plans")
+}
+
+model WeekStaffSchedule {
+  id          String   @id @default(cuid())
+  weekPlanId  String
+  weekPlan    WeekPlan @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  dayOfWeek   String   // 'monday', 'tuesday', 'wednesday', 'thursday', 'friday'
+  staffNames  String   // JSON array of staff member names: ["Carla", "Merel", "Irma"]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([weekPlanId, dayOfWeek])
+  @@map("week_staff_schedules")
+}
+
+model WeekTreatment {
+  id              String   @id @default(cuid())
+  weekPlanId      String
+  weekPlan        WeekPlan @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  medicationId    String   // Medication type ID
+  treatmentNumber Int      @default(1) // 1=first time, 2=2nd-3rd, 3=4th-6th, 4=7th+
+  quantity        Int      // Number of treatments needed (e.g., 10x Infliximab 7e gift)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("week_treatments")
+}
+
+model Staff {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  maxPatients Int
+  maxWorkTime Int?     // In minutes from start of day (e.g., 360 = 14:00)
+  workDays    String?  // JSON array of DayOfWeek: ["monday", "tuesday"] or null
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("staff")
+}
+
