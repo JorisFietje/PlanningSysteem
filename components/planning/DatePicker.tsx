@@ -3,6 +3,16 @@
 import { useState } from 'react'
 import { formatDateToISO, getDayOfWeekFromDate, DAY_LABELS, DayOfWeek, StaffMember } from '@/types'
 
+const DAY_NAMES = {
+  monday: 'Maandag',
+  tuesday: 'Dinsdag',
+  wednesday: 'Woensdag',
+  thursday: 'Donderdag',
+  friday: 'Vrijdag',
+  saturday: 'Zaterdag',
+  sunday: 'Zondag'
+}
+
 interface DatePickerProps {
   value: string // YYYY-MM-DD format
   onChange: (date: string) => void
@@ -83,7 +93,11 @@ export default function DatePicker({ value, onChange, staffMembers }: DatePicker
     const day = d.getDate()
     const month = d.getMonth() + 1
     const year = d.getFullYear()
-    return `${day.toString().padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`
+    // Get actual day of week from date object (0=Sunday, 1=Monday, etc.)
+    const dayIndex = d.getDay()
+    const dayNames = ['Zondag', 'Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag']
+    const dayName = dayNames[dayIndex]
+    return `${dayName} ${day.toString().padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`
   }
 
   return (
@@ -121,9 +135,10 @@ export default function DatePicker({ value, onChange, staffMembers }: DatePicker
             <div className="flex items-center justify-between mb-4">
               <button
                 onClick={prevMonth}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label="Vorige maand"
               >
-                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
@@ -132,9 +147,10 @@ export default function DatePicker({ value, onChange, staffMembers }: DatePicker
               </div>
               <button
                 onClick={nextMonth}
-                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-slate-100 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label="Volgende maand"
               >
-                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </button>
@@ -165,7 +181,7 @@ export default function DatePicker({ value, onChange, staffMembers }: DatePicker
                     onClick={() => selectDate(day)}
                     className={`aspect-square rounded-lg text-sm font-semibold transition-all ${
                       isSelected(day)
-                        ? 'bg-blue-600 text-white shadow-md'
+                        ? 'bg-blue-700 text-white shadow-md'
                         : isToday(day)
                         ? 'bg-blue-50 text-blue-600 border-2 border-blue-300'
                         : 'hover:bg-slate-100 text-slate-700'

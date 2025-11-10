@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { MEDICATIONS, MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS } from '@/types'
+import Select from '../common/Select'
 
 interface WeekTreatmentsProps {
   treatments: Array<{
@@ -75,76 +76,76 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
   return (
     <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-900 mb-2">Behandelingen voor deze Week</h2>
-        <p className="text-slate-600">
-          Voeg behandelingen toe die deze week moeten plaatsvinden. Het systeem verdeelt deze automatisch over de week.
-        </p>
+        <div className="flex items-center gap-2 mb-2">
+          <h2 className="text-2xl font-bold text-slate-900">Behandelingen voor deze Week</h2>
+          <div className="relative group">
+            <svg className="w-5 h-5 text-blue-600 flex-shrink-0 cursor-help" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {/* Tooltip */}
+            <div className="absolute left-0 top-full mt-2 w-64 p-3 bg-slate-900 text-white text-sm rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
+              <p className="text-white">
+                Voeg behandelingen toe die deze week moeten plaatsvinden. Het systeem verdeelt deze automatisch over de week.
+              </p>
+              {/* Arrow */}
+              <div className="absolute bottom-full left-4 border-4 border-transparent border-b-slate-900"></div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Add Treatment Form */}
       <div className="bg-slate-50 rounded-lg p-4 mb-6 border border-slate-200">
         <h3 className="font-bold text-lg mb-4 text-slate-900">Nieuwe Behandeling Toevoegen</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Categorie
-            </label>
-            <select
+            <Select
               value={selectedCategory}
-              onChange={(e) => {
-                setSelectedCategory(e.target.value)
+              onChange={(value) => {
+                setSelectedCategory(value)
                 setSelectedMedication('')
               }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
-            >
-              {MEDICATION_CATEGORIES.map(cat => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name}
-                </option>
-              ))}
-            </select>
+              options={MEDICATION_CATEGORIES.map(cat => ({
+                value: cat.id,
+                label: cat.name
+              }))}
+              label="Categorie"
+            />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Medicatie
-            </label>
-            <select
+            <Select
               value={selectedMedication}
-              onChange={(e) => {
-                setSelectedMedication(e.target.value)
+              onChange={(value) => {
+                setSelectedMedication(value)
                 setSelectedTreatmentNumber(1)
               }}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
-            >
-              <option value="">Selecteer medicatie</option>
-              {filteredMedications.map(med => (
-                <option key={med.id} value={med.id}>
-                  {med.displayName}
-                </option>
-              ))}
-            </select>
+              options={filteredMedications.map(med => ({
+                value: med.id,
+                label: med.displayName
+              }))}
+              label="Medicatie"
+              placeholder="Selecteer medicatie"
+              searchable={filteredMedications.length > 5}
+            />
           </div>
 
-          {hasMultipleTreatments && (
+          {hasMultipleTreatments ? (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Behandeling Nummer
-              </label>
-              <select
-                value={selectedTreatmentNumber}
-                onChange={(e) => setSelectedTreatmentNumber(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
-              >
-                {TREATMENT_NUMBER_OPTIONS.filter(opt => {
+              <Select
+                value={selectedTreatmentNumber.toString()}
+                onChange={(value) => setSelectedTreatmentNumber(parseInt(value))}
+                options={TREATMENT_NUMBER_OPTIONS.filter(opt => {
                   return selectedMedicationData?.variants.some(v => v.treatmentNumber === opt.value)
-                }).map(opt => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                }).map(opt => ({
+                  value: opt.value.toString(),
+                  label: opt.label
+                }))}
+                label="Behandeling Nummer"
+              />
             </div>
+          ) : (
+            <div></div>
           )}
 
           <div>
@@ -157,11 +158,11 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
                 min="1"
                 value={quantity}
                 onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
+                className="flex-1 px-3 py-2.5 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none text-sm"
               />
               <button
                 onClick={handleAdd}
-                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors"
+                className="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-semibold transition-colors text-sm whitespace-nowrap"
               >
                 + Toevoegen
               </button>

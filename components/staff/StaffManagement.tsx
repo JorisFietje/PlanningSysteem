@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { StaffMember, DayOfWeek, DAY_LABELS } from '@/types'
 import { getStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember, resetToDefaults } from '@/utils/staff/staffManagement'
+import ConfirmModal from '@/components/common/ConfirmModal'
+import Select from '@/components/common/Select'
 
 interface StaffManagementProps {
   onUpdate: () => void // Callback when staff is updated
@@ -23,10 +25,102 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
     workDays: []
   })
   const [error, setError] = useState<string | null>(null)
+  const [dayCoordinators, setDayCoordinators] = useState<Record<DayOfWeek, string | null>>({
+    monday: null,
+    tuesday: null,
+    wednesday: null,
+    thursday: null,
+    friday: null
+  })
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean
+    title: string
+    message: string
+    onConfirm: () => void
+    variant?: 'danger' | 'warning' | 'info'
+    confirmText?: string
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    variant: 'info'
+  })
 
   useEffect(() => {
     loadStaff()
+    loadDayCoordinators()
   }, [])
+
+  const loadDayCoordinators = () => {
+    const stored = localStorage.getItem('dayCoordinators')
+    if (stored) {
+      try {
+        const loaded = JSON.parse(stored)
+        setDayCoordinators(loaded)
+      } catch (e) {
+        console.error('Error loading day coordinators:', e)
+        // Set default coordinators if loading fails
+        const defaults: Record<DayOfWeek, string | null> = {
+          monday: 'Carla',
+          tuesday: 'Emmy',
+          wednesday: 'Joyce',
+          thursday: 'Carla',
+          friday: 'Merel'
+        }
+        setDayCoordinators(defaults)
+        saveDayCoordinators(defaults)
+      }
+    } else {
+      // Set default coordinators if none exist
+      const defaults: Record<DayOfWeek, string | null> = {
+        monday: 'Carla',
+        tuesday: 'Emmy',
+        wednesday: 'Joyce',
+        thursday: 'Carla',
+        friday: 'Merel'
+      }
+      setDayCoordinators(defaults)
+      saveDayCoordinators(defaults)
+    }
+  }
+
+  const saveDayCoordinators = (coordinators: Record<DayOfWeek, string | null>) => {
+    localStorage.setItem('dayCoordinators', JSON.stringify(coordinators))
+    setDayCoordinators(coordinators)
+    onUpdate() // Notify parent to refresh
+  }
+
+  const handleSetCoordinator = async (day: DayOfWeek, staffName: string | null) => {
+    const newCoordinators = { ...dayCoordinators, [day]: staffName }
+    
+    // If a coordinator is assigned, update their workdays to include this day
+    if (staffName) {
+      const coordinatorStaff = staff.find(s => s.name === staffName)
+      if (coordinatorStaff && !coordinatorStaff.workDays.includes(day)) {
+        try {
+          const updatedWorkDays = [...coordinatorStaff.workDays, day]
+          await updateStaffMember(staffName, { ...coordinatorStaff, workDays: updatedWorkDays })
+          await loadStaff() // Reload to get updated workdays
+        } catch (error) {
+          console.error('Error updating coordinator workdays:', error)
+        }
+      }
+    }
+    
+    // If coordinator is removed, remove the day from their workdays if they're not working it normally
+    const oldCoordinator = dayCoordinators[day]
+    if (oldCoordinator && oldCoordinator !== staffName) {
+      const oldCoordinatorStaff = staff.find(s => s.name === oldCoordinator)
+      if (oldCoordinatorStaff) {
+        // Only remove if they don't have other workdays (or if this was their only workday)
+        // Actually, let's keep it simple - don't auto-remove workdays when coordinator is removed
+        // The user can manually manage workdays
+      }
+    }
+    
+    saveDayCoordinators(newCoordinators)
+  }
 
   const loadStaff = async () => {
     const loaded = await getStaffMembers()
@@ -89,27 +183,46 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
   }
 
   const handleDelete = async (name: string) => {
-    if (!confirm(`Weet je zeker dat je ${name} wilt verwijderen?`)) {
-      return
-    }
-
-    try {
-      await deleteStaffMember(name)
-      await loadStaff()
-      onUpdate()
-    } catch (err: any) {
-      setError(err.message)
-    }
+    setConfirmModal({
+      isOpen: true,
+      title: 'Verpleegkundige Verwijderen',
+      message: `Weet je zeker dat je ${name} wilt verwijderen?`,
+      onConfirm: async () => {
+        try {
+          await deleteStaffMember(name)
+          await loadStaff()
+          onUpdate()
+        } catch (err: any) {
+          setError(err.message)
+        }
+      },
+      variant: 'danger',
+      confirmText: 'Verwijderen'
+    })
   }
 
   const handleReset = async () => {
-    if (!confirm('Weet je zeker dat je wilt resetten naar standaard verpleegkundigen? Dit kan niet ongedaan worden gemaakt.')) {
-      return
-    }
-
-    await resetToDefaults()
-    await loadStaff()
-    onUpdate()
+    setConfirmModal({
+      isOpen: true,
+      title: 'Resetten naar Standaard',
+      message: 'Weet je zeker dat je wilt resetten naar standaard verpleegkundigen? Dit kan niet ongedaan worden gemaakt.',
+      onConfirm: async () => {
+        await resetToDefaults()
+        // Reset coordinators to null for all days
+        const emptyCoordinators: Record<DayOfWeek, string | null> = {
+          monday: null,
+          tuesday: null,
+          wednesday: null,
+          thursday: null,
+          friday: null
+        }
+        saveDayCoordinators(emptyCoordinators)
+        await loadStaff()
+        onUpdate()
+      },
+      variant: 'warning',
+      confirmText: 'Resetten'
+    })
   }
 
   const toggleWorkDay = (day: DayOfWeek) => {
@@ -146,7 +259,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
           </button>
           <button
             onClick={handleAdd}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-semibold flex items-center gap-2"
+            className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg transition-colors text-sm font-semibold flex items-center gap-2"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -244,7 +357,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
                     onClick={() => toggleWorkDay(day)}
                     className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
                       formData.workDays.includes(day)
-                        ? 'bg-blue-600 text-white shadow-md'
+                        ? 'bg-blue-700 text-white shadow-md'
                         : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
                     }`}
                   >
@@ -257,7 +370,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
             <div className="flex gap-2 pt-2">
               <button
                 type="submit"
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors text-sm font-semibold"
+                className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white rounded-lg transition-colors text-sm font-semibold"
               >
  Opslaan
               </button>
@@ -279,23 +392,72 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
         <div className="grid grid-cols-5 gap-3">
           {(Object.keys(DAY_LABELS) as DayOfWeek[]).map(day => {
             const dayStaff = staffByDay[day]
-            const totalCapacity = dayStaff.reduce((sum, s) => sum + s.maxPatients, 0)
+            const coordinator = dayCoordinators[day]
+            // Filter out coordinator from regular staff (coordinator is 4th person)
+            const regularStaff = coordinator ? dayStaff.filter(s => s.name !== coordinator) : dayStaff
+            // Calculate capacity: 3 regular staff + coordinator (5 patients)
+            const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
+            const totalCapacity = regularCapacity + 5 // Coordinator always adds 5
+            
+            // Get coordinator staff member if exists
+            const coordinatorStaff = coordinator ? staff.find(s => s.name === coordinator) : null
             
             return (
               <div key={day} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
                 <div className="font-bold text-sm text-slate-900 mb-1">{DAY_LABELS[day]}</div>
                 <div className="text-xs text-slate-600 mb-2">
-                  {dayStaff.length} VPK • Max {totalCapacity} pat.
+                  {regularStaff.length} VPK + 1 Coördinator • Max {totalCapacity} pat.
                 </div>
+                
+                {/* Day Coordinator Selection */}
+                <div className="mb-2">
+                  <Select
+                    value={coordinator || ''}
+                    onChange={(value) => handleSetCoordinator(day, value || null)}
+                    options={[
+                      { value: '', label: 'Geen' },
+                      ...staff
+                        .filter(s => {
+                          // Show if they're the current coordinator, or if they're not assigned as regular staff that day
+                          return s.name === coordinator || !regularStaff.some(rs => rs.name === s.name)
+                        })
+                        .map(s => ({
+                          value: s.name,
+                          label: s.name
+                        }))
+                    ]}
+                    label="Dag Coördinator:"
+                    placeholder="Selecteer coördinator"
+                    searchable={staff.length > 5}
+                    className="text-xs"
+                  />
+                </div>
+                
                 <div className="space-y-1">
-                  {dayStaff.length === 0 ? (
+                  {/* Regular Staff (3 VPK) */}
+                  {regularStaff.length === 0 ? (
                     <div className="text-xs text-slate-400 italic">Geen VPK</div>
                   ) : (
-                    dayStaff.map(s => (
-                      <div key={s.name} className="text-xs bg-white px-2 py-1 rounded border border-slate-200">
+                    regularStaff.map(s => (
+                      <div 
+                        key={s.name} 
+                        className="text-xs px-2 py-1 rounded border bg-white border-slate-200"
+                      >
                         {s.name} ({s.maxPatients})
                       </div>
                     ))
+                  )}
+                  
+                  {/* Coordinator (4th person) */}
+                  {coordinator && coordinatorStaff && (
+                    <div className="text-xs px-2 py-1 rounded border bg-amber-100 border-amber-300 font-semibold mt-1">
+                      <div className="flex items-center justify-between">
+                        <span>
+                          {coordinator} (5)
+                        </span>
+                        <span className="text-[9px] text-amber-600">Coördinator</span>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -319,46 +481,79 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {staff.map(s => (
-                <tr key={s.name} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-900">{s.name}</td>
-                  <td className="px-4 py-3 text-slate-700">{s.maxPatients} patiënten</td>
-                  <td className="px-4 py-3 text-slate-700">
-                    {s.maxWorkTime 
-                      ? `Tot ${Math.floor(s.maxWorkTime / 60) + 8}:${String(s.maxWorkTime % 60).padStart(2, '0')}`
-                      : 'Hele dag'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {s.workDays.map(day => (
-                        <span key={day} className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                          {DAY_LABELS[day].substring(0, 2)}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        onClick={() => handleEdit(s)}
-                        className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm font-medium transition-colors"
-                      >
-                        Bewerk
-                      </button>
-                      <button
-                        onClick={() => handleDelete(s.name)}
-                        className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded text-sm font-medium transition-colors"
-                      >
+              {staff.map(s => {
+                // Check which days this staff member is a coordinator
+                const coordinatorDays = (Object.keys(dayCoordinators) as DayOfWeek[]).filter(
+                  day => dayCoordinators[day] === s.name
+                )
+                
+                return (
+                  <tr 
+                    key={s.name} 
+                    className="hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      {s.name}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{s.maxPatients} patiënten</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {s.maxWorkTime 
+                        ? `Tot ${Math.floor(s.maxWorkTime / 60) + 8}:${String(s.maxWorkTime % 60).padStart(2, '0')}`
+                        : 'Hele dag'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {s.workDays.map(day => {
+                          const isCoordinatorDay = coordinatorDays.includes(day)
+                          return (
+                            <span 
+                              key={day} 
+                              className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                isCoordinatorDay 
+                                  ? 'bg-amber-200 text-amber-800 border border-amber-300' 
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}
+                            >
+                              {DAY_LABELS[day].substring(0, 2)}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => handleEdit(s)}
+                          className="px-3 py-1 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-sm font-medium transition-colors"
+                        >
+                          Bewerk
+                        </button>
+                        <button
+                          onClick={() => handleDelete(s.name)}
+                          className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 rounded text-sm font-medium transition-colors"
+                        >
  Verwijder
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Confirm Modal */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal({ ...confirmModal, isOpen: false })}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        variant={confirmModal.variant || 'info'}
+        confirmText={confirmModal.confirmText}
+      />
     </div>
   )
 }
