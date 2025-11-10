@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { OptimizationSuggestion, DEPARTMENT_CONFIG, DAY_LABELS, getDailyPatientCapacity, getTodayISO, getDayOfWeekFromDate, DayOfWeek, formatDateToISO, getMondayOfWeek, formatDateToDutch } from '@/types'
 import { generateOptimizationSuggestions, calculateWorkloadByTimeSlot } from '@/utils/planning/workload'
 import { usePatients } from '@/hooks/usePatients'
@@ -727,7 +728,16 @@ export default function Home() {
       {/* Compact Header */}
       <header className="bg-gradient-to-r from-blue-700 to-blue-600 text-white py-4 px-6 shadow-lg flex-shrink-0">
         <div className="max-w-[1800px] mx-auto flex items-center justify-between">
-          <div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white/30 bg-white/10 flex items-center justify-center">
+              <Image 
+                src="/logo.png" 
+                alt="St. Antonius Logo" 
+                width={40} 
+                height={40}
+                className="object-contain"
+              />
+            </div>
             <h1 className="text-2xl font-bold">Dagbehandeling 4B</h1>
           </div>
           
