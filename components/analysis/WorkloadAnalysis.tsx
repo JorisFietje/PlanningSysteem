@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
-import { WorkloadSlot } from '@/types'
+import { WorkloadSlot, DEPARTMENT_CONFIG } from '@/types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
@@ -17,7 +17,7 @@ export default function WorkloadAnalysis({ workload }: WorkloadAnalysisProps) {
   if (activeWorkload.length === 0) {
     return (
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-        <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Werkdruk Analyse (per 15 minuten)</h2>
+        <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Werkdruk Analyse</h2>
         <div className="text-center py-16">
           <div className="text-4xl mb-2 text-slate-300">
             <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -44,10 +44,10 @@ export default function WorkloadAnalysis({ workload }: WorkloadAnalysisProps) {
         label: 'Aantal Gelijktijdige Patiënten',
         data: displayWorkload.map(w => w.count),
         backgroundColor: displayWorkload.map(w => {
-          if (w.count >= 4) return '#dc2626' // High
-          if (w.count >= 3) return '#ea580c' // Medium-high
-          if (w.count >= 2) return '#f59e0b' // Medium
-          return '#16a34a' // Low
+          if (w.count >= 10) return '#dc2626' // Very high (>=10)
+          if (w.count >= 7) return '#ea580c' // High (7-9)
+          if (w.count >= 4) return '#f59e0b' // Medium (4-6)
+          return '#16a34a' // Low (0-3)
         }),
         borderColor: 'rgba(0, 0, 0, 0.1)',
         borderWidth: 1,
@@ -61,6 +61,7 @@ export default function WorkloadAnalysis({ workload }: WorkloadAnalysisProps) {
     scales: {
       y: {
         beginAtZero: true,
+        max: 14,
         ticks: {
           stepSize: 1,
         },
@@ -98,45 +99,75 @@ export default function WorkloadAnalysis({ workload }: WorkloadAnalysisProps) {
 
   return (
     <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
-      <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Werkdruk Analyse (per 15 minuten)</h2>
+      <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Werkdruk Analyse</h2>
       
       <div className="mb-8">
         <Bar data={chartData} options={options} />
       </div>
 
+      {/* Key Statistics & Insights */}
       <div>
-        <h3 className="font-bold text-lg mb-4 text-slate-900">Details per Tijdslot:</h3>
-        <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2">
-          {activeWorkload.map(slot => {
-            const percentage = (slot.count / maxCount) * 100
-            const isHigh = slot.count >= 3
-
-            return (
-              <div key={slot.time} className="flex items-center gap-4">
-                <div className="font-semibold text-slate-700 min-w-[100px] flex-shrink-0">{slot.time}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="h-6 bg-slate-200 rounded-lg overflow-hidden">
-                    <div
-                      className={`h-full flex items-center px-2 text-white text-xs font-semibold ${
-                        isHigh
-                          ? 'bg-gradient-to-r from-orange-500 to-red-600'
-                          : 'bg-gradient-to-r from-green-500 to-orange-500'
-                      }`}
-                      style={{ width: `${Math.max(percentage, 15)}%` }}
-                    >
-                      <span className="truncate">{slot.count} patiënt(en)</span>
-                    </div>
+        <h3 className="font-bold text-lg mb-4 text-slate-900">Belangrijke Inzichten</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Peak Times */}
+          <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-lg p-4 border border-red-200">
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+              </svg>
+              <h4 className="font-bold text-red-900">Piekuren</h4>
+            </div>
+            <div className="space-y-2">
+              {activeWorkload
+                .filter(slot => slot.count >= 10)
+                .slice(0, 3)
+                .map(slot => (
+                  <div key={slot.time} className="flex items-center justify-between bg-white/60 rounded px-3 py-2">
+                    <span className="font-semibold text-slate-700">{slot.time}</span>
+                    <span className="font-bold text-red-700">{slot.count} patiënten</span>
                   </div>
-                  {slot.patients.length > 0 && (
-                    <div className="text-xs text-slate-600 mt-1 truncate" title={slot.patients.join(', ')}>
-                      {slot.patients.join(', ')}
-                    </div>
-                  )}
-                </div>
-                <div className="font-bold text-slate-900 min-w-[40px] text-right flex-shrink-0">{slot.count}</div>
+                ))}
+              {activeWorkload.filter(slot => slot.count >= 10).length === 0 && (
+                <div className="text-sm text-red-700">Geen piekuren (≥10 patiënten)</div>
+              )}
+            </div>
+          </div>
+
+          {/* Workload Distribution */}
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4 border border-blue-200">
+            <div className="flex items-center gap-2 mb-3">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              <h4 className="font-bold text-blue-900">Drukte Verdeling</h4>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between bg-white/60 rounded px-3 py-2">
+                <span className="text-sm text-slate-700">Zeer Hoog (≥10)</span>
+                <span className="font-bold text-red-700">
+                  {activeWorkload.filter(s => s.count >= 10).length} tijdslot{activeWorkload.filter(s => s.count >= 10).length !== 1 ? 'ten' : ''}
+                </span>
               </div>
-            )
-          })}
+              <div className="flex items-center justify-between bg-white/60 rounded px-3 py-2">
+                <span className="text-sm text-slate-700">Hoog (7-9)</span>
+                <span className="font-bold text-orange-700">
+                  {activeWorkload.filter(s => s.count >= 7 && s.count < 10).length} tijdslot{activeWorkload.filter(s => s.count >= 7 && s.count < 10).length !== 1 ? 'ten' : ''}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-white/60 rounded px-3 py-2">
+                <span className="text-sm text-slate-700">Gemiddeld (4-6)</span>
+                <span className="font-bold text-yellow-700">
+                  {activeWorkload.filter(s => s.count >= 4 && s.count < 7).length} tijdslot{activeWorkload.filter(s => s.count >= 4 && s.count < 7).length !== 1 ? 'ten' : ''}
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-white/60 rounded px-3 py-2">
+                <span className="text-sm text-slate-700">Laag (0-3)</span>
+                <span className="font-bold text-green-700">
+                  {activeWorkload.filter(s => s.count < 4).length} tijdslot{activeWorkload.filter(s => s.count < 4).length !== 1 ? 'ten' : ''}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

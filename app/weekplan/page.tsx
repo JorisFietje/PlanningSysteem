@@ -115,6 +115,8 @@ export default function WeekPlanPage() {
   }
 
   const handleGeneratePlan = async () => {
+    // Note: This should use ConfirmModal, but for now keeping confirm for consistency
+    // TODO: Replace with ConfirmModal component
     if (!confirm('Dit zal automatisch alle behandelingen over de week verdelen. Doorgaan?')) {
       return
     }

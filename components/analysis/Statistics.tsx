@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { Patient, WorkloadSlot, DayOfWeek, StaffMember, getDailyPatientCapacity } from '@/types'
 
 interface StatisticsProps {
@@ -10,9 +11,15 @@ interface StatisticsProps {
 }
 
 export default function Statistics({ patients, workload, selectedDay, staffMembers }: StatisticsProps) {
+  const [targetPatients, setTargetPatients] = useState<number>(0)
+  
+  useEffect(() => {
+    // Calculate capacity after hydration to avoid mismatch
+    const capacity = getDailyPatientCapacity(selectedDay, staffMembers)
+    setTargetPatients(capacity.max)
+  }, [selectedDay, staffMembers])
+  
   const totalActions = patients.reduce((sum, p) => sum + p.actions.filter(a => a.type !== 'infusion').length, 0)
-  const capacity = getDailyPatientCapacity(selectedDay, staffMembers)
-  const targetPatients = capacity.max
 
   let peakTime = '--:--'
   let maxConcurrent = 0

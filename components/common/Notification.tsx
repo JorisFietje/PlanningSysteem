@@ -21,9 +21,9 @@ export default function Notification({ message, type, onClose }: NotificationPro
   }, [onClose])
 
   const bgColor = {
-    success: 'bg-green-600',
-    warning: 'bg-orange-600',
-    info: 'bg-blue-600',
+    success: 'bg-green-700',
+    warning: 'bg-orange-700',
+    info: 'bg-blue-700',
   }[type]
 
   return (

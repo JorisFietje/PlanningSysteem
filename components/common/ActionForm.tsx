@@ -94,7 +94,7 @@ export default function ActionForm({ patients, onSubmit }: ActionFormProps) {
         </div>
         <button
           type="submit"
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
+          className="w-full bg-blue-700 hover:bg-blue-800 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
         >
           Toevoegen
         </button>

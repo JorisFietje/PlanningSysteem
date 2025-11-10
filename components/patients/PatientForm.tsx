@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { MEDICATIONS, MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate } from '@/types'
 import { getTreatmentBreakdown } from '@/utils/patients/actionGenerator'
 import TimeSlotPicker from '../planning/TimeSlotPicker'
+import Select, { SelectOption } from '../common/Select'
 
 interface PatientFormProps {
   onSubmit: (name: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string) => void
@@ -86,96 +87,77 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
       
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
-          <label htmlFor="category" className="block text-xs font-medium text-slate-600 mb-1">
-            Medicatie Categorie
-          </label>
-          <select
-            id="category"
+          <Select
             value={selectedCategory}
-            onChange={(e) => {
-              setSelectedCategory(e.target.value)
-              const firstMed = MEDICATIONS.find(m => m.category === e.target.value)
+            onChange={(value) => {
+              setSelectedCategory(value)
+              const firstMed = MEDICATIONS.find(m => m.category === value)
               if (firstMed) {
                 setMedicationId(firstMed.id)
                 setTreatmentNumber(1) // Reset treatment number when category changes
               }
             }}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
-          >
-            {MEDICATION_CATEGORIES.map(cat => (
-              <option key={cat.id} value={cat.id}>
-                {cat.icon} {cat.name}
-              </option>
-            ))}
-          </select>
+            options={MEDICATION_CATEGORIES.map(cat => ({
+              value: cat.id,
+              label: `${cat.icon} ${cat.name}`
+            }))}
+            label="Medicatie Categorie"
+          />
         </div>
 
         <div>
-          <label htmlFor="medication" className="block text-xs font-medium text-slate-600 mb-1">
-            Medicatie Type
-          </label>
-          <select
-            id="medication"
+          <Select
             value={medicationId}
-            onChange={(e) => {
-              setMedicationId(e.target.value)
+            onChange={(value) => {
+              setMedicationId(value)
               setTreatmentNumber(1) // Reset treatment number when medication changes
             }}
+            options={filteredMedications.map(med => ({
+              value: med.id,
+              label: med.displayName
+            }))}
+            label="Medicatie Type"
             required
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
-          >
-            {filteredMedications.map(med => (
-              <option key={med.id} value={med.id}>
-                {med.displayName}
-              </option>
-            ))}
-          </select>
+            searchable={filteredMedications.length > 5}
+            placeholder="Selecteer medicatie"
+          />
         </div>
 
         {hasMultipleTreatments && (
           <div>
-            <label htmlFor="treatmentNumber" className="block text-xs font-medium text-slate-600 mb-1">
-              Behandeling Nummer
-            </label>
-            <select
-              id="treatmentNumber"
-              value={treatmentNumber}
-              onChange={(e) => setTreatmentNumber(parseInt(e.target.value))}
-              required
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
-            >
-              {TREATMENT_NUMBER_OPTIONS.filter(opt => {
+            <Select
+              value={treatmentNumber.toString()}
+              onChange={(value) => setTreatmentNumber(parseInt(value))}
+              options={TREATMENT_NUMBER_OPTIONS.filter(opt => {
                 // Only show treatment options that exist for this medication
                 return selectedMedication?.variants.some(v => v.treatmentNumber === opt.value)
-              }).map(opt => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              }).map(opt => ({
+                value: opt.value.toString(),
+                label: opt.label
+              }))}
+              label="Behandeling Nummer"
+              required
+            />
           </div>
         )}
 
         <div>
-          <label htmlFor="preferredNurse" className="block text-xs font-medium text-slate-600 mb-1">
-            Verpleegkundige voor Aanbrengen
-          </label>
-          <select
-            id="preferredNurse"
+          <Select
             value={preferredNurse}
-            onChange={(e) => setPreferredNurse(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
-          >
-            {availableStaff.length > 0 ? (
-              availableStaff.map(staff => (
-                <option key={staff.name} value={staff.name}>
-                  👤 {staff.name} (max {staff.maxPatients} patiënten{staff.maxWorkTime ? `, werkt tot ${Math.floor(staff.maxWorkTime / 60) + 8}:00` : ''})
-                </option>
-              ))
-            ) : (
-              <option value="">Geen verpleegkundigen beschikbaar op deze dag</option>
-            )}
-          </select>
+            onChange={setPreferredNurse}
+            options={availableStaff.length > 0 ? availableStaff.map(staff => ({
+              value: staff.name,
+              label: `👤 ${staff.name} (max ${staff.maxPatients} patiënten${staff.maxWorkTime ? `, werkt tot ${Math.floor(staff.maxWorkTime / 60) + 8}:00` : ''})`
+            })) : [{
+              value: '',
+              label: 'Geen verpleegkundigen beschikbaar op deze dag',
+              disabled: true
+            }]}
+            label="Verpleegkundige voor Aanbrengen"
+            placeholder="Selecteer verpleegkundige"
+            searchable={availableStaff.length > 5}
+            emptyMessage="Geen verpleegkundigen beschikbaar"
+          />
           <p className="text-xs text-slate-500 mt-1">
             {availableStaff.length > 0 
               ? `${availableStaff.length} verpleegkundige${availableStaff.length > 1 ? 'n' : ''} beschikbaar op deze dag`
@@ -274,7 +256,7 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
           className={`w-full font-semibold py-2 px-4 rounded-lg transition-colors text-sm ${
             endsAfterClosing || availableStaff.length === 0
               ? 'bg-gray-400 cursor-not-allowed text-gray-200' 
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
+              : 'bg-blue-700 hover:bg-blue-800 text-white'
           }`}
           title={
             availableStaff.length === 0 

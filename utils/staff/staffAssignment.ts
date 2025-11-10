@@ -1,4 +1,4 @@
-import { DEPARTMENT_CONFIG, StaffMember, DayOfWeek } from '@/types'
+import { DEPARTMENT_CONFIG, StaffMember, DayOfWeek, getDayCoordinators } from '@/types'
 
 interface StaffAvailability {
   staff: string
@@ -30,20 +30,44 @@ export class StaffScheduler {
     
     // FILTER: Only use staff members who work on the selected day (or have no workDays set)
     const availableStaffForDay = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(selectedDay))
-    this.staffMembers = availableStaffForDay
     
-    // Initialize only available staff members for this day
-    this.availability = availableStaffForDay.map(staffMember => ({
-      staff: staffMember.name,
-      maxPatients: staffMember.maxPatients,
-      maxWorkTime: staffMember.maxWorkTime,
-      lastSetupTime: -999, // Far in the past
-      totalWorkload: 0,
-      setupCount: 0,
-      busyUntil: 0 // Available from start of day
-    }))
+    // Get day coordinators - coordinator is 4th person, separate from the 3 VPK
+    const dayCoordinators = getDayCoordinators()
+    const coordinator = dayCoordinators[selectedDay]
     
-    console.log(`🗓️ StaffScheduler geïnitialiseerd voor ${selectedDay} met ${this.staffMembers.length} verpleegkundigen: ${this.staffMembers.map(s => s.name).join(', ')}`)
+    // If coordinator exists and is not in the regular staff, add them as 4th person
+    let allStaffForDay = [...availableStaffForDay]
+    if (coordinator) {
+      const coordinatorExists = availableStaffForDay.some(s => s.name === coordinator)
+      if (!coordinatorExists) {
+        // Coordinator is not in regular staff, find them and add as 4th person
+        const coordinatorStaff = staffMembers.find(s => s.name === coordinator)
+        if (coordinatorStaff) {
+          allStaffForDay.push(coordinatorStaff)
+        }
+      }
+    }
+    
+    this.staffMembers = allStaffForDay
+    
+    // Initialize all staff members for this day (3 VPK + 1 coordinator if present)
+    this.availability = allStaffForDay.map(staffMember => {
+      // If this staff member is the day coordinator, limit to 5 patients
+      const maxPatients = (coordinator && staffMember.name === coordinator) ? 5 : staffMember.maxPatients
+      
+      return {
+        staff: staffMember.name,
+        maxPatients: maxPatients,
+        maxWorkTime: staffMember.maxWorkTime,
+        lastSetupTime: -999, // Far in the past
+        totalWorkload: 0,
+        setupCount: 0,
+        busyUntil: 0 // Available from start of day
+      }
+    })
+    
+    const regularStaff = coordinator ? allStaffForDay.filter(s => s.name !== coordinator) : allStaffForDay
+    console.log(`🗓️ StaffScheduler geïnitialiseerd voor ${selectedDay} met ${regularStaff.length} VPK${coordinator ? ` + 1 Coördinator (${coordinator} - max 5 patiënten)` : ''}: ${allStaffForDay.map(s => s.name).join(', ')}`)
   }
 
   /**

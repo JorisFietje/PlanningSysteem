@@ -2,14 +2,14 @@
 
 import { Patient } from '@/types'
 import { getTotalDuration } from '@/utils/planning/workload'
+import { getMedicationById } from '@/types/medications'
 
 interface TreatmentBoxesProps {
   patients: Patient[]
-  onDeleteAction: (actionId: string) => void
   onEditPatient?: (patient: Patient) => void
 }
 
-export default function TreatmentBoxes({ patients, onDeleteAction, onEditPatient }: TreatmentBoxesProps) {
+export default function TreatmentBoxes({ patients, onEditPatient }: TreatmentBoxesProps) {
   if (patients.length === 0) {
     return (
       <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200">
@@ -30,9 +30,17 @@ export default function TreatmentBoxes({ patients, onDeleteAction, onEditPatient
     <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 h-full flex flex-col">
       <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Behandelingsvakken</h2>
       <div className="flex-1 overflow-y-auto pr-2">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {patients.map(patient => {
             const totalDuration = getTotalDuration(patient)
+            
+            // Extract medication name from patient name (remove "Patiënt X - " prefix)
+            const medication = getMedicationById(patient.medicationType)
+            const displayName = medication?.displayName || patient.medicationType
+            // Remove "Patiënt X - " prefix if present
+            const cleanName = patient.name.includes(' - ') 
+              ? patient.name.split(' - ').slice(1).join(' - ')
+              : displayName
 
             return (
               <div
@@ -40,7 +48,7 @@ export default function TreatmentBoxes({ patients, onDeleteAction, onEditPatient
                 className="bg-gradient-to-br from-slate-50 to-slate-100 border-2 border-slate-200 rounded-xl p-4 hover:border-blue-500 hover:shadow-lg transition-all"
               >
                 <div className="flex justify-between items-center pb-3 mb-3 border-b-2 border-slate-200">
-                  <h3 className="text-base font-bold text-slate-900 truncate" title={patient.name}>{patient.name}</h3>
+                  <h3 className="text-base font-bold text-slate-900 truncate" title={cleanName}>{cleanName}</h3>
                   <div className="flex items-center gap-2">
                     <div className="text-xs font-semibold text-slate-600 whitespace-nowrap">
                       {patient.startTime}
@@ -80,10 +88,6 @@ export default function TreatmentBoxes({ patients, onDeleteAction, onEditPatient
                                         isRemoval ? 'border-orange-600' : 
                                         isInfusion ? 'border-green-600' :
                                         'border-blue-600'
-                      const badgeColor = isSetup ? 'bg-purple-600' : 
-                                        isRemoval ? 'bg-orange-600' : 
-                                        isInfusion ? 'bg-green-600' :
-                                        'bg-blue-600'
                       
                       return (
                         <div
@@ -94,25 +98,14 @@ export default function TreatmentBoxes({ patients, onDeleteAction, onEditPatient
                             <div className="font-semibold text-sm text-slate-900 truncate" title={action.name}>
                               {action.name}
                             </div>
-                            <div className="text-xs text-slate-600 truncate" title={action.staff}>
+                            <div className="text-xs text-slate-600 truncate mt-0.5" title={action.staff}>
                               {action.staff || 'Automatisch'}
                             </div>
                           </div>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            <div className={`${badgeColor} text-white px-2 py-1 rounded-md font-semibold text-xs`}>
-                              {action.duration}m
-                            </div>
-                            {!isInfusion && (
-                              <button
-                                onClick={() => onDeleteAction(action.id)}
-                                className="p-1 text-red-600 hover:bg-red-50 rounded-md transition-colors"
-                                title="Verwijder handeling"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
-                            )}
+                          <div className="flex items-center justify-center flex-shrink-0 min-w-[50px]">
+                            <span className="text-sm text-slate-700 font-semibold">
+                              {(isSetup || isRemoval) ? `~${action.duration}m` : `${action.duration}m`}
+                            </span>
                           </div>
                         </div>
                       )
@@ -130,4 +123,5 @@ export default function TreatmentBoxes({ patients, onDeleteAction, onEditPatient
     </div>
   )
 }
+
 

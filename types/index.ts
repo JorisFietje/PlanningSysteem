@@ -133,6 +133,31 @@ export function formatDateToISO(date: Date): string {
 }
 
 /**
+ * Get Monday of the week for a given date
+ * Returns the Monday (start of week) for any date in that week
+ */
+export function getMondayOfWeek(dateString: string): string {
+  const date = new Date(dateString + 'T00:00:00')
+  const day = date.getDay() // 0=Sunday, 1=Monday, etc.
+  const diff = date.getDate() - day + (day === 0 ? -6 : 1) // Adjust when day is Sunday
+  const monday = new Date(date)
+  monday.setDate(diff)
+  return formatDateToISO(monday)
+}
+
+/**
+ * Format date to Dutch format (DD MMM YYYY)
+ */
+export function formatDateToDutch(dateString: string): string {
+  const date = new Date(dateString + 'T00:00:00')
+  const months = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+  const day = date.getDate()
+  const month = months[date.getMonth()]
+  const year = date.getFullYear()
+  return `${day} ${month} ${year}`
+}
+
+/**
  * Get today's date in YYYY-MM-DD format
  */
 export function getTodayISO(): string {
@@ -140,15 +165,57 @@ export function getTodayISO(): string {
 }
 
 /**
+ * Get day coordinators from localStorage
+ */
+export function getDayCoordinators(): Record<DayOfWeek, string | null> {
+  if (typeof window === 'undefined') {
+    return {
+      monday: null,
+      tuesday: null,
+      wednesday: null,
+      thursday: null,
+      friday: null
+    }
+  }
+  
+  const stored = localStorage.getItem('dayCoordinators')
+  if (stored) {
+    try {
+      return JSON.parse(stored)
+    } catch (e) {
+      console.error('Error loading day coordinators:', e)
+    }
+  }
+  
+  return {
+    monday: null,
+    tuesday: null,
+    wednesday: null,
+    thursday: null,
+    friday: null
+  }
+}
+
+/**
  * Calculate dynamic daily patient capacity based on staff working on that day
  * Returns { min: number, max: number } where max is the total capacity
+ * Takes into account day coordinators (4th person, limited to 5 patients)
  */
 export function getDailyPatientCapacity(day: DayOfWeek, staffMembers: StaffMember[] = STAFF_MEMBERS): { min: number; max: number; total: number } {
   // Filter staff working on this day (or have no workDays set)
   const staffForDay = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(day))
   
-  // Calculate total capacity (sum of maxPatients)
-  const totalCapacity = staffForDay.reduce((sum, s) => sum + s.maxPatients, 0)
+  // Get day coordinators - coordinator is 4th person, separate from the 3 VPK
+  const dayCoordinators = getDayCoordinators()
+  const coordinator = dayCoordinators[day]
+  
+  // Filter out coordinator from regular staff (coordinator is 4th person)
+  const regularStaff = coordinator ? staffForDay.filter(s => s.name !== coordinator) : staffForDay
+  
+  // Calculate capacity: 3 regular staff + coordinator (5 patients) if coordinator exists
+  const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
+  const coordinatorCapacity = coordinator ? 5 : 0 // Coordinator always adds 5 if present
+  const totalCapacity = regularCapacity + coordinatorCapacity
   
   // Target is 90% of capacity for minimum, max is the total capacity
   const min = Math.floor(totalCapacity * 0.90)
