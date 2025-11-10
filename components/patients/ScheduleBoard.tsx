@@ -432,22 +432,22 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="sticky top-0 bg-blue-700 border-b-2 border-blue-800 p-6 rounded-t-xl">
+            <div className="sticky top-0 bg-blue-700 border-b-2 border-blue-800 p-4 rounded-t-xl">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 id="patient-modal-title" className="text-2xl font-bold mb-2 text-white">{selectedPatient.name}</h3>
-                  <div className="flex items-center gap-4 text-blue-50">
-                    <div className="flex items-center gap-1.5">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <h3 id="patient-modal-title" className="text-xl font-bold mb-1.5 text-white">{selectedPatient.name}</h3>
+                  <div className="flex items-center gap-3 text-blue-50">
+                    <div className="flex items-center gap-1">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <span className="text-base">{selectedPatient.startTime}</span>
+                      <span className="text-sm">{selectedPatient.startTime}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <div className="flex items-center gap-1">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
-                      <span className="text-base">{getTotalDuration(selectedPatient)} minuten</span>
+                      <span className="text-sm">{getTotalDuration(selectedPatient)} minuten</span>
                     </div>
                   </div>
                 </div>
@@ -460,21 +460,21 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                           setSelectedPatient(null)
                         }
                       }}
-                      className="text-white hover:text-red-200 hover:bg-blue-700 rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-600"
+                      className="text-white hover:text-red-200 hover:bg-blue-700 rounded-lg p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-600"
                       title="Behandeling verwijderen"
                       aria-label="Behandeling verwijderen"
                     >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
                     </button>
                   )}
                   <button
                     onClick={() => setSelectedPatient(null)}
-                    className="text-white hover:text-blue-100 hover:bg-blue-700 rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-600"
+                    className="text-white hover:text-blue-100 hover:bg-blue-700 rounded-lg p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-600"
                     aria-label="Modal sluiten"
                   >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -483,26 +483,26 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
             </div>
 
             {/* Modal Content */}
-            <div className="p-6">
+            <div className="p-5">
               {/* Medication Info */}
-              <div className="mb-6">
-                <h4 className="text-lg font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+              <div className="mb-4">
+                <h4 className="text-base font-semibold text-slate-900 mb-2.5 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
                   Behandeling Informatie
                 </h4>
-                <div className="bg-slate-50 rounded-lg p-4 border-2 border-slate-300">
-                  <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <div className="text-sm font-medium text-slate-700 mb-1.5">Medicatie Type</div>
-                      <div className="font-semibold text-base text-slate-900">
+                      <div className="text-xs font-medium text-slate-700 mb-1">Medicatie Type</div>
+                      <div className="font-semibold text-sm text-slate-900">
                         {getMedicationById(selectedPatient.medicationType)?.displayName || selectedPatient.medicationType}
                       </div>
                     </div>
                     <div>
-                      <div className="text-sm font-medium text-slate-700 mb-1.5">Behandeling Nummer</div>
-                      <div className="font-semibold text-base text-slate-900">
+                      <div className="text-xs font-medium text-slate-700 mb-1">Behandeling Nummer</div>
+                      <div className="font-semibold text-sm text-slate-900">
                         {selectedPatient.treatmentNumber === 1 ? '1e behandeling' :
                          selectedPatient.treatmentNumber === 2 ? '2e-3e behandeling' :
                          selectedPatient.treatmentNumber === 3 ? '4e-6e behandeling' :
@@ -515,36 +515,52 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
 
               {/* Actions Timeline */}
               <div>
-                <h4 className="text-lg font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <h4 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                   Behandeling Overzicht ({selectedPatient.actions.filter(a => a.type !== 'infusion').length} handelingen)
                 </h4>
-                <div className="space-y-2" role="list">
+                <div className="space-y-2.5" role="list">
                   {selectedPatient.actions.map((action, index) => {
+                    const isSetup = action.type === 'setup' || action.name.includes('Aanbrengen')
+                    const isRemoval = action.type === 'removal' || action.name.includes('Afkoppelen')
+                    const isInfusion = action.type === 'infusion' || action.name.includes('Loopt')
+                    const isCheck = action.type === 'check' || action.name.includes('Controle') || action.name.includes('Check')
+                    
+                    // Determine color based on action type
+                    let barColor = 'bg-slate-400'
+                    if (isSetup) barColor = 'bg-purple-500'
+                    else if (isCheck) barColor = 'bg-blue-500'
+                    else if (isInfusion) barColor = 'bg-green-500'
+                    else if (isRemoval) barColor = 'bg-orange-500'
+                    
+                    const duration = action.actualDuration || action.duration
+                    const durationText = (isSetup || isRemoval) ? `~${duration}m` : `${duration}m`
+                    
                     return (
                       <div 
                         key={action.id} 
                         role="listitem"
-                        className="p-3 rounded-lg border-2 border-slate-300 bg-white hover:bg-slate-50 transition-colors"
+                        className="flex rounded-lg border-2 border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors overflow-hidden"
                       >
-                        <div className="flex items-center justify-between">
+                        {/* Colored left bar */}
+                        <div className={`w-2 ${barColor} flex-shrink-0`}></div>
+                        
+                        {/* Content */}
+                        <div className="flex-1 p-3 flex items-center justify-between">
                           <div className="flex-1">
-                            <div className="font-semibold text-base text-slate-900">{action.name}</div>
-                            {action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen' && (
-                              <div className="text-sm text-slate-700 mt-1">{action.staff}</div>
-                            )}
+                            <div className="font-semibold text-sm text-slate-900">{action.name}</div>
+                            {action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen' ? (
+                              <div className="text-xs text-slate-600 mt-0.5">{action.staff}</div>
+                            ) : action.staff === 'Systeem' ? (
+                              <div className="text-xs text-slate-600 mt-0.5">Systeem</div>
+                            ) : null}
                           </div>
-                          <div className="text-right">
+                          <div className="text-right ml-3">
                             <div className="font-bold text-base text-slate-900">
-                              {action.actualDuration || action.duration} min
+                              {durationText}
                             </div>
-                            {action.actualDuration && action.actualDuration !== action.duration && (
-                              <div className="text-sm text-slate-700">
-                                (werk: {action.actualDuration}m)
-                              </div>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -554,23 +570,23 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
               </div>
 
               {/* Summary */}
-              <div className="mt-6 pt-6 border-t-2 border-slate-300">
-                <div className="grid grid-cols-3 gap-4 text-center" role="group" aria-label="Behandeling samenvatting">
-                  <div className="bg-slate-50 rounded-lg p-4 border-2 border-slate-300">
-                    <div className="text-2xl font-bold text-slate-900">{getTotalDuration(selectedPatient)}</div>
-                    <div className="text-sm font-medium text-slate-700 mt-2">Totaal minuten</div>
+              <div className="mt-4 pt-4 border-t-2 border-slate-300">
+                <div className="grid grid-cols-3 gap-3 text-center" role="group" aria-label="Behandeling samenvatting">
+                  <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
+                    <div className="text-xl font-bold text-slate-900">{getTotalDuration(selectedPatient)}</div>
+                    <div className="text-xs font-medium text-slate-700 mt-1.5">Totaal minuten</div>
                   </div>
-                  <div className="bg-slate-50 rounded-lg p-4 border-2 border-slate-300">
-                    <div className="text-2xl font-bold text-slate-900">
+                  <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
+                    <div className="text-xl font-bold text-slate-900">
                       {selectedPatient.actions.filter(a => a.staff && a.staff !== 'Systeem' && a.staff !== 'Geen').length}
                     </div>
-                    <div className="text-sm font-medium text-slate-700 mt-2">VPK handelingen</div>
+                    <div className="text-xs font-medium text-slate-700 mt-1.5">VPK handelingen</div>
                   </div>
-                  <div className="bg-slate-50 rounded-lg p-4 border-2 border-slate-300">
-                    <div className="text-2xl font-bold text-slate-900">
+                  <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
+                    <div className="text-xl font-bold text-slate-900">
                       {new Set(selectedPatient.actions.filter(a => a.staff && a.staff !== 'Systeem' && a.staff !== 'Geen').map(a => a.staff)).size}
                     </div>
-                    <div className="text-sm font-medium text-slate-700 mt-2">Verpleegkundigen</div>
+                    <div className="text-xs font-medium text-slate-700 mt-1.5">Verpleegkundigen</div>
                   </div>
                 </div>
               </div>
