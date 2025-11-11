@@ -30,14 +30,13 @@ import TreatmentBoxes from '@/components/patients/TreatmentBoxes'
 import WorkloadAnalysis from '@/components/analysis/WorkloadAnalysis'
 import OptimizationSuggestions from '@/components/analysis/OptimizationSuggestions'
 import StaffTimeline from '@/components/staff/StaffTimeline'
-import StaffManagement from '@/components/staff/StaffManagement'
 import WeekStaffSchedule from '@/components/planning/WeekStaffSchedule'
 import WeekTreatments from '@/components/planning/WeekTreatments'
 import WeekOverview from '@/components/planning/WeekOverview'
 import Notification from '@/components/common/Notification'
 import ConfirmModal from '@/components/common/ConfirmModal'
 
-type TabType = 'planning' | 'behandelingen' | 'analyse' | 'medewerkers' | 'beheer'
+type TabType = 'planning' | 'behandelingen' | 'analyse' | 'medewerkers'
 type WeekPlanTab = 'rooster' | 'behandelingen' | 'overzicht'
 
 export default function Home() {
@@ -87,6 +86,13 @@ export default function Home() {
   }>>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [generatedPatients, setGeneratedPatients] = useState<string[]>([])
+  const [coordinatorByDay, setCoordinatorByDay] = useState<Record<DayOfWeek, string | null>>({
+    monday: null,
+    tuesday: null,
+    wednesday: null,
+    thursday: null,
+    friday: null
+  })
 
   // Custom hooks
   const { patients, setPatients, fetchPatients } = usePatients(selectedDate)
@@ -96,9 +102,19 @@ export default function Home() {
 
   // Week planning functions
   useEffect(() => {
-    if (activeView === 'weekplanning') {
+    // Always keep selectedWeekStart in sync with the currently selectedDate (Monday of that week)
+    const monday = getMondayOfWeek(selectedDate)
+    if (monday !== selectedWeekStart) {
+      setSelectedWeekStart(monday)
+    } else {
+      // If week didn't change but date changed within the same week, still ensure we have latest plan
       loadWeekPlan()
     }
+  }, [selectedDate])
+
+  useEffect(() => {
+    // Load (or reload) the week plan whenever the week changes or the weekplanning view is opened
+    loadWeekPlan()
   }, [selectedWeekStart, activeView])
 
   const loadWeekPlan = async () => {
@@ -115,11 +131,29 @@ export default function Home() {
             thursday: [],
             friday: []
           }
+          const coordinators: Record<DayOfWeek, string | null> = {
+            monday: null,
+            tuesday: null,
+            wednesday: null,
+            thursday: null,
+            friday: null
+          }
           data.staffSchedules?.forEach((s: any) => {
             const day = s.dayOfWeek as DayOfWeek
-            schedule[day] = JSON.parse(s.staffNames)
+            try {
+              const parsed = JSON.parse(s.staffNames)
+              if (Array.isArray(parsed)) {
+                schedule[day] = parsed
+              } else {
+                schedule[day] = parsed?.staff || []
+                coordinators[day] = parsed?.coordinator || null
+              }
+            } catch {
+              schedule[day] = []
+            }
           })
           setStaffSchedule(schedule)
+          setCoordinatorByDay(coordinators)
           setTreatments(data.treatments?.map((t: any) => ({
             medicationId: t.medicationId,
             treatmentNumber: t.treatmentNumber,
@@ -140,6 +174,13 @@ export default function Home() {
             friday: []
           })
           setTreatments([])
+          setCoordinatorByDay({
+            monday: null,
+            tuesday: null,
+            wednesday: null,
+            thursday: null,
+            friday: null
+          })
           setGeneratedPatients([])
         }
       } else {
@@ -152,6 +193,13 @@ export default function Home() {
           friday: []
         })
         setTreatments([])
+        setCoordinatorByDay({
+          monday: null,
+          tuesday: null,
+          wednesday: null,
+          thursday: null,
+          friday: null
+        })
         setGeneratedPatients([])
       }
     } catch (error) {
@@ -165,6 +213,13 @@ export default function Home() {
         friday: []
       })
       setTreatments([])
+      setCoordinatorByDay({
+        monday: null,
+        tuesday: null,
+        wednesday: null,
+        thursday: null,
+        friday: null
+      })
       setGeneratedPatients([])
     }
   }
@@ -178,9 +233,12 @@ export default function Home() {
         body: JSON.stringify({
           weekStartDate: selectedWeekStart,
           weekEndDate: weekEnd,
-          staffSchedules: Object.entries(staffSchedule).map(([day, names]) => ({
+          staffSchedules: (Object.entries(staffSchedule) as Array<[DayOfWeek, string[]]>).map(([day, names]) => ({
             dayOfWeek: day,
-            staffNames: JSON.stringify(names)
+            staffNames: JSON.stringify({
+              staff: names,
+              coordinator: coordinatorByDay[day] || null
+            })
           })),
           treatments
         })
@@ -288,7 +346,73 @@ export default function Home() {
 
   const weekDates = getWeekDates()
 
-  const handleAddPatient = async (name: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string) => {
+  // Helper: compute Friday (week end) from Monday (week start)
+  const getWeekEndFromMonday = (mondayISO: string): string => {
+    const start = new Date(mondayISO + 'T00:00:00')
+    const friday = new Date(start)
+    friday.setDate(start.getDate() + 4) // Friday
+    return formatDateToISO(friday)
+  }
+
+  // Sync a single treatment (+1 or -1) into the WeekPlan.treatments for the selected week
+  const syncWeekPlanTreatment = async (
+    medicationId: string,
+    treatmentNumber: number,
+    delta: number
+  ) => {
+    try {
+      const monday = getMondayOfWeek(selectedDate)
+      const res = await fetch(`/api/weekplan?weekStart=${monday}`)
+      let existing: any = null
+      if (res.ok) {
+        existing = await res.json()
+      }
+      const weekStartDate = monday
+      const weekEndDate = getWeekEndFromMonday(monday)
+
+      // Build staffSchedules payload (preserve existing if any)
+      const staffSchedulesPayload =
+        existing?.staffSchedules?.map((s: any) => ({
+          dayOfWeek: s.dayOfWeek,
+          staffNames: s.staffNames // already JSON string in db, keep as is
+        })) || []
+
+      // Build treatments payload: increment or decrement quantity for the given (medId, treatmentNumber)
+      const mapKey = (m: string, t: number) => `${m}__${t}`
+      const counts = new Map<string, number>()
+      if (existing?.treatments) {
+        for (const t of existing.treatments) {
+          const key = mapKey(t.medicationId, t.treatmentNumber)
+          counts.set(key, (counts.get(key) || 0) + t.quantity)
+        }
+      }
+      const key = mapKey(medicationId, treatmentNumber)
+      counts.set(key, Math.max(0, (counts.get(key) || 0) + delta))
+
+      const treatmentsPayload: Array<{ medicationId: string; treatmentNumber: number; quantity: number }> = []
+      counts.forEach((q, k) => {
+        if (q > 0) {
+          const [mid, tn] = k.split('__')
+          treatmentsPayload.push({ medicationId: mid, treatmentNumber: parseInt(tn), quantity: q })
+        }
+      })
+
+      await fetch('/api/weekplan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          weekStartDate,
+          weekEndDate,
+          staffSchedules: staffSchedulesPayload,
+          treatments: treatmentsPayload
+        })
+      })
+    } catch (e) {
+      console.error('Failed to sync week plan treatments:', e)
+    }
+  }
+
+  const handleAddPatient = async (name: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string, customInfusionMinutes?: number) => {
     try {
       // Only validate that nurse works on selected day (basic requirement)
       if (preferredNurse) {
@@ -302,17 +426,24 @@ export default function Home() {
       const patientsAtTime = patients.filter(p => p.startTime === startTime).length
       
       // Add patient with actions (allow overlaps for manual entry)
+      const day = getDayOfWeekFromDate(selectedDate)
+      const assignedNames = staffSchedule[day]
+      const filteredStaff = (assignedNames && assignedNames.length > 0)
+        ? staffMembers.filter(s => assignedNames.includes(s.name))
+        : staffMembers
       const result = await addPatientWithActions(
         name,
         startTime,
         selectedDate,
         medicationId,
         treatmentNumber,
-        staffMembers,
+        filteredStaff,
         patients,
         preferredNurse,
         showNotification,
-        true // allowOverlaps = true for manual entry
+        true, // allowOverlaps = true for manual entry
+        coordinatorByDay[day] || undefined,
+        customInfusionMinutes
       )
 
       if (!result.success) {
@@ -320,6 +451,8 @@ export default function Home() {
       }
 
       await fetchPatients()
+      // Reflect this treatment in the week plan (+1)
+      await syncWeekPlanTreatment(medicationId, treatmentNumber, 1)
       
       // Don't reassign staff assignments during manual entry - only when optimizing
       // await reassignAllStaffAssignments(selectedDate, staffMembers)
@@ -369,9 +502,13 @@ export default function Home() {
     startTime: string,
     medicationId: string,
     treatmentNumber: number,
-    preferredNurse?: string
+    preferredNurse?: string,
+    customInfusionMinutes?: number
   ) => {
     try {
+      const prevPatient = patients.find(p => p.id === patientId) || null
+      const prevMedicationId = prevPatient?.medicationType
+      const prevTreatmentNumber = prevPatient?.treatmentNumber
       // Only validate that nurse works on selected day (basic requirement)
       if (preferredNurse) {
         const workDayValidation = validateNurseWorkDay(preferredNurse, staffMembers, selectedDate)
@@ -403,10 +540,19 @@ export default function Home() {
 
       // Regenerate actions with new medication/treatment/start time
       const dayOfWeek = getDayOfWeekFromDate(selectedDate)
-      const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
-      const scheduler = new StaffScheduler(availableStaff, dayOfWeek)
+      const assignedNames = staffSchedule[dayOfWeek]
+      const availableStaff = (assignedNames && assignedNames.length > 0)
+        ? staffMembers.filter(s => assignedNames.includes(s.name))
+        : staffMembers
+      const scheduler = new StaffScheduler(availableStaff, dayOfWeek, coordinatorByDay[dayOfWeek] || undefined)
       
       const actions = generateActionsForMedication(medicationId, treatmentNumber)
+      if (customInfusionMinutes && customInfusionMinutes > 0) {
+        const infusion = actions.find(a => a.type === 'infusion')
+        if (infusion) {
+          infusion.duration = customInfusionMinutes
+        }
+      }
       const [hours, minutes] = startTime.split(':').map(Number)
       let patientStartMinutes = hours * 60 + minutes
       let cumulativeMinutes = 0
@@ -475,6 +621,11 @@ export default function Home() {
       
       // Refresh patients after update
       await fetchPatients()
+      // If medication or treatment number changed, sync week plan counts
+      if (prevMedicationId && (prevMedicationId !== medicationId || prevTreatmentNumber !== treatmentNumber)) {
+        await syncWeekPlanTreatment(prevMedicationId, prevTreatmentNumber || 1, -1)
+        await syncWeekPlanTreatment(medicationId, treatmentNumber, 1)
+      }
       
       showNotification('Behandeling bijgewerkt!', 'success')
       setEditingPatient(null)
@@ -492,9 +643,14 @@ export default function Home() {
       message: 'Weet je zeker dat je deze behandeling volledig wilt verwijderen? Alle handelingen worden ook verwijderd.',
       onConfirm: async () => {
         try {
+          const p = patients.find(pp => pp.id === patientId) || null
           const success = await deletePatientService(patientId)
           if (success) {
             await fetchPatients()
+            // Reflect in week plan (-1) if we have the previous record
+            if (p) {
+              await syncWeekPlanTreatment(p.medicationType, p.treatmentNumber, -1)
+            }
             showNotification('Behandeling verwijderd', 'success')
           } else {
             showNotification('Fout bij verwijderen behandeling', 'warning')
@@ -559,7 +715,9 @@ export default function Home() {
           showNotification('Planning optimaliseren... Dit kan even duren.', 'info')
           
           // Use advanced optimizer
-          const result = await optimizeDayPlanning(patients, staffMembers, selectedDate)
+          const day = getDayOfWeekFromDate(selectedDate)
+          const assignedNames = staffSchedule[day]
+          const result = await optimizeDayPlanning(patients, staffMembers, selectedDate, assignedNames, coordinatorByDay[day] || undefined)
           
           if (result.movedCount === 0 && result.success) {
             showNotification('Planning is al optimaal!', 'success')
@@ -591,8 +749,11 @@ export default function Home() {
 
           // Regenerate actions with new start time
           const dayOfWeek = getDayOfWeekFromDate(selectedDate)
-          const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
-          const scheduler = new StaffScheduler(availableStaff, dayOfWeek)
+          const assignedNames = staffSchedule[dayOfWeek]
+          const availableStaff = (assignedNames && assignedNames.length > 0)
+            ? staffMembers.filter(s => assignedNames.includes(s.name))
+            : staffMembers
+          const scheduler = new StaffScheduler(availableStaff, dayOfWeek, coordinatorByDay[dayOfWeek] || undefined)
           
           const actions = generateActionsForMedication(patient.medicationType, patient.treatmentNumber)
           const [hours, minutes] = newStartTime.split(':').map(Number)
@@ -746,7 +907,9 @@ export default function Home() {
             patients={patients} 
             workload={workload} 
             selectedDay={getDayOfWeekFromDate(selectedDate)} 
-            staffMembers={staffMembers} 
+            staffMembers={staffMembers}
+            assignedStaffNames={staffSchedule[getDayOfWeekFromDate(selectedDate)]}
+            coordinatorName={coordinatorByDay[getDayOfWeekFromDate(selectedDate)] || null}
           />
         </div>
       </header>
@@ -814,19 +977,7 @@ export default function Home() {
                 </svg>
                 <span>Medewerker Planning</span>
               </button>
-              <button
-                onClick={() => setActiveTab('beheer')}
-                className={`px-4 py-3 font-semibold transition-colors rounded-lg text-left flex items-center gap-3 ${
-                  activeTab === 'beheer'
-                    ? 'bg-blue-50 text-blue-600 border-l-4 border-blue-600'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                </svg>
-                <span>VPK Beheer</span>
-              </button>
+              {/* Medewerker/Beheer tabs verwijderd; beheer verloopt via Weekplanning rooster */}
               
               {/* Action Buttons Section */}
               {activeTab === 'planning' && (
@@ -947,25 +1098,10 @@ export default function Home() {
                     </>
                   ) : (
                     <div className="bg-white rounded-xl p-12 shadow-sm border border-slate-200 text-center">
-                      <svg className="w-20 h-20 mx-auto mb-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-20 h-20 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
-                      <h3 className="text-xl font-bold text-slate-900 mb-2">Geen analyse beschikbaar</h3>
-                      <p className="text-slate-600 mb-6">Klik op "Analyseer" of "Optimaliseer" om werkdruk te analyseren</p>
-                      <div className="flex gap-3 justify-center">
-                        <button
-                          onClick={handleAnalyzeWorkload}
-                          className="px-6 py-3 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-semibold transition-colors"
-                        >
-                          Analyseer Werkdruk
-                        </button>
-                        <button
-                          onClick={handleOptimizePlanning}
-                          className="px-6 py-3 bg-green-700 hover:bg-green-800 text-white rounded-lg font-semibold transition-colors"
-                        >
-                          Optimaliseer Planning
-                        </button>
-                      </div>
+                      <h3 className="text-xl font-bold text-slate-900">Geen analyse beschikbaar</h3>
                     </div>
                   )}
                 </div>
@@ -973,13 +1109,17 @@ export default function Home() {
 
               {activeTab === 'medewerkers' && (
                 <div className="h-full">
-                  <StaffTimeline patients={patients} selectedDate={selectedDate} staffMembers={staffMembers} />
-                </div>
-              )}
-
-              {activeTab === 'beheer' && (
-                <div className="h-full">
-                  <StaffManagement onUpdate={loadStaffMembers} />
+                  <StaffTimeline
+                    patients={patients}
+                    selectedDate={selectedDate}
+                    staffMembers={(function () {
+                      const day = getDayOfWeekFromDate(selectedDate)
+                      const names = staffSchedule[day]
+                      return (names && names.length > 0)
+                        ? staffMembers.filter(s => names.includes(s.name))
+                        : staffMembers
+                    })()}
+                  />
                 </div>
               )}
             </div>
@@ -1067,6 +1207,8 @@ export default function Home() {
                       staffSchedule={staffSchedule}
                       setStaffSchedule={setStaffSchedule}
                       staffMembers={staffMembers}
+                      coordinatorByDay={coordinatorByDay}
+                      setCoordinatorByDay={setCoordinatorByDay}
                     />
                   )}
 
@@ -1105,7 +1247,13 @@ export default function Home() {
         }}
         onSubmit={handleAddPatient}
         selectedDate={selectedDate}
-        staffMembers={staffMembers}
+        staffMembers={(function() {
+          const day = getDayOfWeekFromDate(selectedDate)
+          const names = staffSchedule[day]
+          return (names && names.length > 0)
+            ? staffMembers.filter(s => names.includes(s.name))
+            : staffMembers
+        })()}
         editingPatient={editingPatient}
         onUpdate={handleUpdatePatient}
       />

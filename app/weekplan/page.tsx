@@ -29,6 +29,13 @@ export default function WeekPlanPage() {
     thursday: [],
     friday: []
   })
+  const [coordinatorByDay, setCoordinatorByDay] = useState<Record<DayOfWeek, string | null>>({
+    monday: null,
+    tuesday: null,
+    wednesday: null,
+    thursday: null,
+    friday: null
+  })
   
   const [treatments, setTreatments] = useState<Array<{
     medicationId: string
@@ -43,6 +50,39 @@ export default function WeekPlanPage() {
     loadStaffMembers()
     loadWeekPlan()
   }, [selectedWeekStart])
+
+  const getDateForDay = (day: DayOfWeek): string => {
+    const monday = new Date(selectedWeekStart + 'T00:00:00')
+    const offsets: Record<DayOfWeek, number> = {
+      monday: 0,
+      tuesday: 1,
+      wednesday: 2,
+      thursday: 3,
+      friday: 4
+    }
+    const d = new Date(monday)
+    d.setDate(monday.getDate() + offsets[day])
+    return formatDateToISO(d)
+  }
+
+  const rebalanceDay = async (day: DayOfWeek) => {
+    try {
+      const date = getDateForDay(day)
+      const res = await fetch('/api/rebalance-day', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date })
+      })
+      if (res.ok) {
+        alert(`Dagplanning voor ${day} herverdeeld.`)
+      } else {
+        alert('Herverdelen mislukt')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Herverdelen mislukt')
+    }
+  }
 
   const loadStaffMembers = async () => {
     const loaded = await getStaffMembers()
@@ -63,11 +103,29 @@ export default function WeekPlanPage() {
             thursday: [],
             friday: []
           }
+          const coordinators: Record<DayOfWeek, string | null> = {
+            monday: null,
+            tuesday: null,
+            wednesday: null,
+            thursday: null,
+            friday: null
+          }
           data.staffSchedules?.forEach((s: any) => {
             const day = s.dayOfWeek as DayOfWeek
-            schedule[day] = JSON.parse(s.staffNames)
+            try {
+              const parsed = JSON.parse(s.staffNames)
+              if (Array.isArray(parsed)) {
+                schedule[day] = parsed
+              } else if (parsed && typeof parsed === 'object') {
+                schedule[day] = parsed.staff || []
+                coordinators[day] = parsed.coordinator || null
+              }
+            } catch {
+              schedule[day] = []
+            }
           })
           setStaffSchedule(schedule)
+          setCoordinatorByDay(coordinators)
           
           // Load treatments
           setTreatments(data.treatments?.map((t: any) => ({
@@ -96,9 +154,12 @@ export default function WeekPlanPage() {
         body: JSON.stringify({
           weekStartDate: selectedWeekStart,
           weekEndDate: weekEnd,
-          staffSchedules: Object.entries(staffSchedule).map(([day, names]) => ({
+          staffSchedules: (Object.entries(staffSchedule) as Array<[DayOfWeek, string[]]>).map(([day, names]) => ({
             dayOfWeek: day,
-            staffNames: JSON.stringify(names)
+            staffNames: JSON.stringify({
+              staff: names,
+              coordinator: coordinatorByDay[day] || null
+            })
           })),
           treatments
         })
@@ -241,6 +302,10 @@ export default function WeekPlanPage() {
             staffSchedule={staffSchedule}
             setStaffSchedule={setStaffSchedule}
             staffMembers={staffMembers}
+            onRebalanceDay={rebalanceDay}
+            coordinatorByDay={coordinatorByDay}
+            setCoordinatorByDay={setCoordinatorByDay}
+            onStaffAdded={loadStaffMembers}
           />
         )}
 

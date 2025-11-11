@@ -32,7 +32,8 @@ export async function GET() {
       name: s.name,
       maxPatients: s.maxPatients,
       maxWorkTime: s.maxWorkTime || undefined,
-      workDays: s.workDays ? (JSON.parse(s.workDays) as DayOfWeek[]) : []
+      // Ignore stored workDays; scheduling now uses week plan assignments
+      workDays: []
     }))
 
     return NextResponse.json(staffMembers)
@@ -49,7 +50,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, maxPatients, maxWorkTime, workDays } = body
+    const { name, maxPatients, maxWorkTime } = body
 
     if (!name || !maxPatients) {
       return NextResponse.json(
@@ -74,10 +75,7 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         maxPatients: parseInt(maxPatients),
-        maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null,
-        workDays: workDays && Array.isArray(workDays) && workDays.length > 0 
-          ? JSON.stringify(workDays) 
-          : null
+        maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null
       }
     })
 
@@ -85,7 +83,7 @@ export async function POST(request: NextRequest) {
       name: staff.name,
       maxPatients: staff.maxPatients,
       maxWorkTime: staff.maxWorkTime || undefined,
-      workDays: staff.workDays ? (JSON.parse(staff.workDays) as DayOfWeek[]) : []
+      workDays: []
     })
   } catch (error) {
     console.error('Failed to create staff:', error)
@@ -107,8 +105,7 @@ export async function initializeDefaults() {
           data: {
             name: staff.name,
             maxPatients: staff.maxPatients,
-            maxWorkTime: staff.maxWorkTime || null,
-            workDays: JSON.stringify(staff.workDays)
+            maxWorkTime: staff.maxWorkTime || null
           }
         })
       }

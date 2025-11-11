@@ -197,7 +197,9 @@ export async function addPatientWithActions(
   existingPatients: Patient[],
   preferredNurse?: string,
   showNotification?: ShowNotification,
-  allowOverlaps: boolean = false
+  allowOverlaps: boolean = false,
+  coordinatorName?: string,
+  customInfusionMinutes?: number
 ): Promise<{ success: boolean; patient?: Patient }> {
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
   const medication = getMedicationById(medicationId)
@@ -214,7 +216,13 @@ export async function addPatientWithActions(
   }
 
   const actions = generateActionsForMedication(medicationId, treatmentNumber)
-  const scheduler = new StaffScheduler(staffMembers, dayOfWeek)
+  if (customInfusionMinutes && customInfusionMinutes > 0) {
+    const infusion = actions.find(a => a.type === 'infusion')
+    if (infusion) {
+      infusion.duration = customInfusionMinutes
+    }
+  }
+  const scheduler = new StaffScheduler(staffMembers, dayOfWeek, coordinatorName)
 
   // Load existing patient data to inform scheduling
   existingPatients.forEach(p => {

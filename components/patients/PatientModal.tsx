@@ -9,11 +9,11 @@ import Select from '../common/Select'
 interface PatientModalProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (name: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string) => void
+  onSubmit: (name: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string, customInfusionMinutes?: number) => void
   selectedDate: string
   staffMembers: StaffMember[]
   editingPatient?: Patient | null
-  onUpdate?: (patientId: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string) => void
+  onUpdate?: (patientId: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string, customInfusionMinutes?: number) => void
 }
 
 // Generate a unique patient name based on medication and counter
@@ -31,12 +31,14 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const [selectedCategory, setSelectedCategory] = useState('immunotherapy')
   const [medicationId, setMedicationId] = useState(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
   const [treatmentNumber, setTreatmentNumber] = useState(1)
+  // Optional custom infusion duration (minutes)
+  const [customInfusionMinutes, setCustomInfusionMinutes] = useState<string>('')
   
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
   
-  // Filter staff members who work on selected day (or have no workDays set)
-  const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
+  // Beschikbaarheid via weekrooster (reeds gefilterd door aanroeper)
+  const availableStaff = staffMembers
   const [preferredNurse, setPreferredNurse] = useState<string>(availableStaff[0]?.name || staffMembers[0]?.name || '')
   
   // Load editing patient data or reset when modal opens/closes
@@ -65,6 +67,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         setMedicationId(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
         setTreatmentNumber(1)
         setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '')
+        setCustomInfusionMinutes('')
       }
     }
   }, [isOpen, editingPatient])
@@ -81,12 +84,27 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
     if (startTime && medicationId) {
       if (isEditing && editingPatient && onUpdate) {
         // Update existing patient
-        onUpdate(editingPatient.id, startTime, medicationId, treatmentNumber, preferredNurse)
+        onUpdate(
+          editingPatient.id,
+          startTime,
+          medicationId,
+          treatmentNumber,
+          undefined,
+          customInfusionMinutes !== '' ? Number(customInfusionMinutes) : undefined
+        )
       } else {
         // Create new patient
         const medication = MEDICATIONS.find(m => m.id === medicationId)
         const patientName = generatePatientName(medication?.displayName || medicationId)
-        onSubmit(patientName, startTime, medicationId, treatmentNumber, preferredNurse)
+        // Laat de planningsengine de verpleegkundige automatisch toewijzen
+        onSubmit(
+          patientName,
+          startTime,
+          medicationId,
+          treatmentNumber,
+          undefined,
+          customInfusionMinutes !== '' ? Number(customInfusionMinutes) : undefined
+        )
       }
       onClose()
     }
@@ -95,12 +113,18 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const filteredMedications = MEDICATIONS.filter(m => m.category === selectedCategory)
   const selectedMedication = MEDICATIONS.find(m => m.id === medicationId)
   const breakdown = medicationId ? getTreatmentBreakdown(medicationId, treatmentNumber) : null
+  const effectiveInfusion = breakdown
+    ? (customInfusionMinutes !== '' ? Number(customInfusionMinutes) : breakdown.infusionTime)
+    : 0
+  const effectiveTotal = breakdown
+    ? breakdown.totalTime - breakdown.infusionTime + effectiveInfusion
+    : 0
   
   const hasMultipleTreatments = selectedMedication ? selectedMedication.variants.length > 1 : false
   
   const [startHours, startMinutes] = startTime.split(':').map(Number)
   const startInMinutes = startHours * 60 + startMinutes
-  const endInMinutes = breakdown ? startInMinutes + breakdown.totalTime : startInMinutes
+  const endInMinutes = breakdown ? startInMinutes + effectiveTotal : startInMinutes
   const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60
   const endsAfterClosing = endInMinutes > closingTime
 
@@ -200,35 +224,31 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
               </div>
             )}
 
-            <div>
-              <Select
-                value={preferredNurse}
-                onChange={setPreferredNurse}
-                options={availableStaff.length > 0 ? availableStaff.map(staff => ({
-                  value: staff.name,
-                  label: `${staff.name} (max ${staff.maxPatients} patiënten${staff.maxWorkTime ? `, werkt tot ${Math.floor(staff.maxWorkTime / 60) + 8}:00` : ''})`
-                })) : [{
-                  value: '',
-                  label: 'Geen verpleegkundigen beschikbaar op deze dag',
-                  disabled: true
-                }]}
-                label="Verpleegkundige voor Aanbrengen"
-                placeholder="Selecteer verpleegkundige"
-                searchable={availableStaff.length > 5}
-                emptyMessage="Geen verpleegkundigen beschikbaar"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                {availableStaff.length > 0 
-                  ? `${availableStaff.length} verpleegkundige${availableStaff.length > 1 ? 'n' : ''} beschikbaar op deze dag`
-                  : 'Geen verpleegkundigen beschikbaar'}
-              </p>
-            </div>
+            {/* Verpleegkundige-keuze verwijderd: toewijzing gebeurt automatisch door het systeem */}
 
             <TimeSlotPicker
               value={startTime}
               onChange={setStartTime}
               label="Start Tijd (15 min intervallen)"
             />
+
+            {/* Custom infusion duration override */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">
+                Infuusduur (minuten, optioneel)
+              </label>
+              <input
+                type="number"
+                min={1}
+                placeholder={breakdown ? String(breakdown.infusionTime) : 'bijv. 120'}
+                value={customInfusionMinutes}
+                onChange={(e) => setCustomInfusionMinutes(e.target.value)}
+                className="w-full px-3 py-2 rounded-md border-2 border-slate-200 bg-white text-slate-900 text-sm"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Laat leeg om de standaardduur van het protocol te gebruiken.
+              </p>
+            </div>
 
             {breakdown && (
               <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
@@ -246,7 +266,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
                   )}
                   <div className="flex justify-between">
                     <span className="text-slate-600">Infuus loopt:</span>
-                    <span className="font-semibold">{breakdown.infusionTime} min</span>
+                    <span className="font-semibold">{effectiveInfusion} min</span>
                   </div>
                   {breakdown.flushTime > 0 && (
                     <div className="flex justify-between">
@@ -260,7 +280,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
                   </div>
                   <div className="border-t border-blue-200 pt-2 mt-2 flex justify-between font-bold">
                     <span>Totale tijd:</span>
-                    <span>{breakdown.totalTime} min</span>
+                    <span>{effectiveTotal} min</span>
                   </div>
                   <div className="flex justify-between text-xs text-slate-600">
                     <span>Start tijd:</span>

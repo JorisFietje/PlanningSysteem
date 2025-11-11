@@ -8,16 +8,28 @@ interface StatisticsProps {
   workload: WorkloadSlot[]
   selectedDay: DayOfWeek
   staffMembers: StaffMember[]
+  assignedStaffNames?: string[]
+  coordinatorName?: string | null
 }
 
-export default function Statistics({ patients, workload, selectedDay, staffMembers }: StatisticsProps) {
+export default function Statistics({ patients, workload, selectedDay, staffMembers, assignedStaffNames, coordinatorName }: StatisticsProps) {
   const [targetPatients, setTargetPatients] = useState<number>(0)
   
   useEffect(() => {
-    // Calculate capacity after hydration to avoid mismatch
-    const capacity = getDailyPatientCapacity(selectedDay, staffMembers)
-    setTargetPatients(capacity.max)
-  }, [selectedDay, staffMembers])
+    // Prefer roster-based capacity if provided
+    if (assignedStaffNames && assignedStaffNames.length > 0) {
+      const assigned = staffMembers.filter(s => assignedStaffNames.includes(s.name))
+      const total = assigned.reduce((sum, s) => {
+        const cap = coordinatorName && s.name === coordinatorName ? Math.min(5, s.maxPatients) : s.maxPatients
+        return sum + cap
+      }, 0)
+      setTargetPatients(total)
+    } else {
+      // Fallback to generic capacity model
+      const capacity = getDailyPatientCapacity(selectedDay, staffMembers)
+      setTargetPatients(capacity.max)
+    }
+  }, [selectedDay, staffMembers, assignedStaffNames, coordinatorName])
   
   const totalActions = patients.reduce((sum, p) => sum + p.actions.filter(a => a.type !== 'infusion').length, 0)
 

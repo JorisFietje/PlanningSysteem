@@ -10,12 +10,7 @@ export function validateNurseWorkDay(
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
   const nurseData = staffMembers.find(s => s.name === preferredNurse)
   
-  if (nurseData && nurseData.workDays.length > 0 && !nurseData.workDays.includes(dayOfWeek)) {
-    return {
-      valid: false,
-      message: `${preferredNurse} werkt niet op ${DAY_LABELS[dayOfWeek]} (${selectedDate}). Kies een andere verpleegkundige.`
-    }
-  }
+  // workDays uitgefaseerd; rooster bepaalt beschikbaarheid per datum
   
   return { valid: true }
 }

@@ -68,7 +68,8 @@ export async function deleteStaffMember(name: string): Promise<void> {
  */
 export async function getStaffForDay(day: DayOfWeek): Promise<StaffMember[]> {
   const all = await getStaffMembers()
-  return all.filter(s => s.workDays.length === 0 || s.workDays.includes(day))
+  // workDays are deprecated; availability comes from week roster
+  return all
 }
 
 /**

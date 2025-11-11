@@ -4,17 +4,17 @@ import { prisma } from '@/lib/prisma'
 
 // Default staff members
 const DEFAULT_STAFF = [
-  { name: 'Carla', maxPatients: 10, workDays: ['monday', 'thursday'] },
-  { name: 'Merel', maxPatients: 10, workDays: ['monday', 'friday'] },
-  { name: 'Irma', maxPatients: 8, workDays: ['monday', 'friday'] },
-  { name: 'Henriette', maxPatients: 10, workDays: ['tuesday'] },
-  { name: 'Emmy', maxPatients: 10, workDays: ['tuesday', 'thursday'] },
-  { name: 'Yvonne', maxPatients: 8, maxWorkTime: 360, workDays: ['tuesday'] },
-  { name: 'Joyce', maxPatients: 10, workDays: ['wednesday'] },
-  { name: 'Suzan', maxPatients: 10, workDays: ['wednesday'] },
-  { name: 'Vera', maxPatients: 8, workDays: ['wednesday'] },
-  { name: 'Chayenne', maxPatients: 5, workDays: ['thursday'] },
-  { name: 'Serina', maxPatients: 3, workDays: ['friday'] },
+  { name: 'Carla', maxPatients: 10 },
+  { name: 'Merel', maxPatients: 10 },
+  { name: 'Irma', maxPatients: 8 },
+  { name: 'Henriette', maxPatients: 10 },
+  { name: 'Emmy', maxPatients: 10 },
+  { name: 'Yvonne', maxPatients: 8, maxWorkTime: 360 },
+  { name: 'Joyce', maxPatients: 10 },
+  { name: 'Suzan', maxPatients: 10 },
+  { name: 'Vera', maxPatients: 8 },
+  { name: 'Chayenne', maxPatients: 5 },
+  { name: 'Serina', maxPatients: 3 },
 ]
 
 // POST - Reset to default staff members
@@ -42,8 +42,8 @@ export async function POST() {
     const staffMembers = staff.map(s => ({
       name: s.name,
       maxPatients: s.maxPatients,
-      maxWorkTime: s.maxWorkTime || undefined,
-      workDays: s.workDays ? (JSON.parse(s.workDays) as DayOfWeek[]) : []
+          maxWorkTime: s.maxWorkTime || undefined,
+          workDays: []
     }))
 
     return NextResponse.json(staffMembers)

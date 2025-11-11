@@ -88,7 +88,6 @@ model Staff {
   name        String   @unique
   maxPatients Int
   maxWorkTime Int?     // In minutes from start of day (e.g., 360 = 14:00)
-  workDays    String?  // JSON array of DayOfWeek: ["monday", "tuesday"] or null
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

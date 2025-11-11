@@ -24,16 +24,18 @@ export class StaffScheduler {
   private setupRoundRobinIndex: number = 0 // Round-robin counter for fair setup distribution
   private staffMembers: StaffMember[]
   private selectedDay: DayOfWeek
+  private coordinatorName?: string
 
-  constructor(staffMembers: StaffMember[], selectedDay: DayOfWeek) {
+  constructor(staffMembers: StaffMember[], selectedDay: DayOfWeek, coordinatorName?: string) {
     this.selectedDay = selectedDay
+    this.coordinatorName = coordinatorName
     
-    // FILTER: Only use staff members who work on the selected day (or have no workDays set)
-    const availableStaffForDay = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(selectedDay))
+    // Beschikbaarheid komt uit het weekrooster; gebruik alle medewerkers
+    const availableStaffForDay = staffMembers
     
     // Get day coordinators - coordinator is 4th person, separate from the 3 VPK
     const dayCoordinators = getDayCoordinators()
-    const coordinator = dayCoordinators[selectedDay]
+    const coordinator = this.coordinatorName ?? dayCoordinators[selectedDay]
     
     // If coordinator exists and is not in the regular staff, add them as 4th person
     let allStaffForDay = [...availableStaffForDay]

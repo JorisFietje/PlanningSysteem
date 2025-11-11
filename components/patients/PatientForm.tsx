@@ -29,8 +29,8 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
   
-  // Filter staff members who work on selected day (or have no workDays set)
-  const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
+  // Beschikbaarheid via weekrooster; toon alle medewerkers
+  const availableStaff = staffMembers
   const [preferredNurse, setPreferredNurse] = useState<string>(availableStaff[0]?.name || staffMembers[0]?.name || '') // Default to first available nurse
   
   // Reset preferred nurse when selected date changes (if current nurse doesn't work on new day)

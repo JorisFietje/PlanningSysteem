@@ -27,8 +27,8 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
 
-  // Filter staff members who work on selected day (or have no workDays set)
-  const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
+  // Availability komt vanuit het weekrooster; toon alle medewerkers
+  const availableStaff = staffMembers
 
   // Calculate all activities
   const activities: StaffActivity[] = []
