@@ -366,3 +366,4 @@ Dit is een demonstratie project. Suggesties en feedback zijn welkom!
 **Veel succes met het plannen! 🎉**
 
 **Powered by React ⚛️ + Next.js + Tailwind CSS 🎨 + Prisma 🔷**
+![1762871481695](image/README/1762871481695.png)

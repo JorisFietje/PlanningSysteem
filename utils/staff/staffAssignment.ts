@@ -68,8 +68,9 @@ export class StaffScheduler {
       }
     })
     
-    const regularStaff = coordinator ? allStaffForDay.filter(s => s.name !== coordinator) : allStaffForDay
-    console.log(`🗓️ StaffScheduler geïnitialiseerd voor ${selectedDay} met ${regularStaff.length} VPK${coordinator ? ` + 1 Coördinator (${coordinator} - max 5 patiënten)` : ''}: ${allStaffForDay.map(s => s.name).join(', ')}`)
+    // Removed console.log to prevent spam in loops
+    // const regularStaff = coordinator ? allStaffForDay.filter(s => s.name !== coordinator) : allStaffForDay
+    // console.log(`🗓️ StaffScheduler geïnitialiseerd voor ${selectedDay} met ${regularStaff.length} VPK${coordinator ? ` + 1 Coördinator (${coordinator} - max 5 patiënten)` : ''}: ${allStaffForDay.map(s => s.name).join(', ')}`)
   }
 
   /**
@@ -164,19 +165,19 @@ export class StaffScheduler {
       // CHECK 4: No overlapping tasks?
       const hasNoOverlap = !this.hasOverlappingTask(staff.staff, requestedMinutes, endMinutes)
       
-      // Debug logging
-      if (!hasCapacity) {
-        console.log(`⚠️ ${staff.staff} heeft max aantal patiënten bereikt (${staff.maxPatients})`)
-      }
-      if (!withinWorkingHours) {
-        const maxHour = Math.floor((staff.maxWorkTime || 960) / 60)
-        console.log(`⏰ ${staff.staff} werkt alleen tot ${maxHour + 8}:00`)
-      }
-      if (!hasEnoughPrepTime && staff.lastSetupTime !== -999) {
-        const lastSetupHour = Math.floor(staff.lastSetupTime / 60)
-        const lastSetupMin = staff.lastSetupTime % 60
-        console.log(`⏳ ${staff.staff} needs ${DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME - timeSinceLastSetup} more min prep time (last setup: ${lastSetupHour}:${String(lastSetupMin).padStart(2, '0')})`)
-      }
+      // Debug logging removed to prevent spam
+      // if (!hasCapacity) {
+      //   console.log(`⚠️ ${staff.staff} heeft max aantal patiënten bereikt (${staff.maxPatients})`)
+      // }
+      // if (!withinWorkingHours) {
+      //   const maxHour = Math.floor((staff.maxWorkTime || 960) / 60)
+      //   console.log(`⏰ ${staff.staff} werkt alleen tot ${maxHour + 8}:00`)
+      // }
+      // if (!hasEnoughPrepTime && staff.lastSetupTime !== -999) {
+      //   const lastSetupHour = Math.floor(staff.lastSetupTime / 60)
+      //   const lastSetupMin = staff.lastSetupTime % 60
+      //   console.log(`⏳ ${staff.staff} needs ${DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME - timeSinceLastSetup} more min prep time (last setup: ${lastSetupHour}:${String(lastSetupMin).padStart(2, '0')})`)
+      // }
       
       if (hasCapacity && withinWorkingHours && hasEnoughPrepTime && hasNoOverlap) {
         // Found available staff member!
@@ -245,12 +246,13 @@ export class StaffScheduler {
     const adjustedMins = adjustedStart % 60
     const actualStartTime = `${adjustedHours.toString().padStart(2, '0')}:${adjustedMins.toString().padStart(2, '0')}`
     
-    if (adjustedStart > requestedMinutes) {
-      const delayReason = adjustedStart === minSetupTime ? '30 min prep time' : 
-                          adjustedStart === fallbackStaff.busyUntil ? 'busy with other tasks' : 
-                          'break time'
-      console.log(`⏰ Setup delayed from ${startTime} to ${actualStartTime} for ${fallbackStaff.staff} (reason: ${delayReason})`)
-    }
+    // Removed console.log to prevent spam
+    // if (adjustedStart > requestedMinutes) {
+    //   const delayReason = adjustedStart === minSetupTime ? '30 min prep time' : 
+    //                       adjustedStart === fallbackStaff.busyUntil ? 'busy with other tasks' : 
+    //                       'break time'
+    //   console.log(`⏰ Setup delayed from ${startTime} to ${actualStartTime} for ${fallbackStaff.staff} (reason: ${delayReason})`)
+    // }
     
     return { staff: fallbackStaff.staff, actualStartTime, wasDelayed: adjustedStart > requestedMinutes }
   }
@@ -309,7 +311,8 @@ export class StaffScheduler {
       const adjustedMins = adjustedStart % 60
       const actualStartTime = `${adjustedHours.toString().padStart(2, '0')}:${adjustedMins.toString().padStart(2, '0')}`
       
-      console.log(`⏰ Delayed ${actionType} from ${requestedTime} to ${actualStartTime} for ${nextFreeStaff.staff}`)
+      // Removed console.log to prevent spam
+      // console.log(`⏰ Delayed ${actionType} from ${requestedTime} to ${actualStartTime} for ${nextFreeStaff.staff}`)
       
       return { 
         staff: nextFreeStaff.staff, 

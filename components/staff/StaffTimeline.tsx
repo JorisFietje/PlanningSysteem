@@ -1,8 +1,10 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate } from '@/types'
 import { getMedicationById } from '@/types/medications'
 import { calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
+import { StaffScheduler } from '@/utils/staff/staffAssignment'
 
 interface StaffTimelineProps {
   patients: Patient[]
@@ -33,64 +35,111 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   // Calculate all activities
   const activities: StaffActivity[] = []
   
+  // Build a temporary schedule for visualization using StaffScheduler
+  // Rules: 
+  // - Exclude: infusion, observation, cito/lab/urine (not modeled)
+  // - Include: setup (aanbrengen), protocol_check, flush (only if no observation), pc_switch, removal
+  // - First assign all setups respecting max patients; then assign other actions at their times
+  // Use useMemo to prevent recreating scheduler on every render
+  const scheduler = useMemo(() => new StaffScheduler(availableStaff, dayOfWeek), [availableStaff, dayOfWeek])
+  
   patients.forEach(patient => {
     const [hours, minutes] = patient.startTime.split(':').map(Number)
     const patientStartMinutes = hours * 60 + minutes
     let currentMinutes = patientStartMinutes
     
-    // Find when infusion starts (after setup + protocol check)
+    // Determine if there is any observation action for this patient
+    const hasObservation = patient.actions.some(a => a.type === 'observation')
+    
+    // Track when infusion starts to position dependent actions that may specify offsets
     let infusionStartMinutes = 0
-    let cumulativeMinutes = 0
-    patient.actions.forEach(action => {
-      if (action.type === 'infusion') {
-        infusionStartMinutes = patientStartMinutes + cumulativeMinutes
+    let cumulativeMinutesForInfusion = 0
+    patient.actions.forEach(a => {
+      if (a.type === 'infusion') {
+        infusionStartMinutes = patientStartMinutes + cumulativeMinutesForInfusion
       }
-      cumulativeMinutes += action.duration
+      cumulativeMinutesForInfusion += a.duration
     })
     
-    // Get medication info for check/PC switch intervals
     const medication = getMedicationById(patient.medicationType)
     
-    // Calculate actual start times for each action
-    currentMinutes = patientStartMinutes
+    // We will keep reference to setup staff to exclude them from protocol_check
+    let setupStaffForPatient: string | undefined
+    
+    // First pass: assign setup immediately when encountered (counts as patient)
+    // Second pass continues inline for other actions using scheduler availability
     let checkCount = 0
     let pcSwitchCount = 0
     
-    patient.actions.forEach(action => {
-      // Only track actions with staff assigned (not 'Systeem' or 'Geen')
-      // 'Systeem' = infusion (automated), 'Geen' = observation (patient waits alone)
-      if (action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen') {
-        let actualStartMinutes = currentMinutes
-        
-        // For checks and PC switches: calculate start time from infusion start + offset
-        if (action.type === 'check' && infusionStartMinutes > 0 && medication?.checkInterval) {
-          checkCount++
-          actualStartMinutes = infusionStartMinutes + (checkCount * medication.checkInterval)
-        } else if (action.type === 'pc_switch' && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
-          pcSwitchCount++
-          actualStartMinutes = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
-        }
-        
-        // For checks and PC switches, use actualDuration for staff workload
-        const staffWorkDuration = action.actualDuration || action.duration
-        
-        // Only add activities that start before closing time
+    for (const action of patient.actions) {
+      let startMinutesForAction = currentMinutes
+      
+      // Derive explicit times for actions with offsets relative to infusion start
+      if ((action.type === 'pc_switch') && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
+        pcSwitchCount++
+        startMinutesForAction = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
+      }
+      
+      // Exclusions
+      if (action.type === 'infusion' || action.type === 'observation') {
+        currentMinutes += action.duration
+        continue
+      }
+      
+      // 'check' does not count/show in this overview
+      if (action.type === 'check') {
+        currentMinutes += action.duration
+        continue
+      }
+      
+      // 'flush' only counts if there is no observation block
+      if (action.type === 'flush' && hasObservation) {
+        currentMinutes += action.duration
+        continue
+      }
+      
+      const actionStartHours = Math.floor(startMinutesForAction / 60)
+      const actionStartMins = startMinutesForAction % 60
+      const actionStartTime = `${actionStartHours.toString().padStart(2, '0')}:${actionStartMins.toString().padStart(2, '0')}`
+      
+      let assignedStaff: string | null = null
+      let scheduledStartMinutes = startMinutesForAction
+      const effectiveDuration = action.actualDuration || action.duration
+      
+      if (action.type === 'setup') {
+        const assignment = scheduler.assignStaffForSetup(actionStartTime, action.duration)
+        assignedStaff = assignment.staff
+        const [ah, am] = assignment.actualStartTime.split(':').map(Number)
+        scheduledStartMinutes = ah * 60 + am
+        setupStaffForPatient = assignment.staff !== 'GEEN' ? assignment.staff : undefined
+      } else if (action.type === 'protocol_check') {
+        const assignment = scheduler.assignStaffForAction(action.type, effectiveDuration, actionStartTime, setupStaffForPatient)
+        assignedStaff = assignment.staff
+        const [ah, am] = assignment.actualStartTime.split(':').map(Number)
+        scheduledStartMinutes = ah * 60 + am
+      } else if (action.type === 'flush' || action.type === 'pc_switch' || action.type === 'removal') {
+        const assignment = scheduler.assignStaffForAction(action.type, effectiveDuration, actionStartTime)
+        assignedStaff = assignment.staff
+        const [ah, am] = assignment.actualStartTime.split(':').map(Number)
+        scheduledStartMinutes = ah * 60 + am
+      }
+      
+      if (assignedStaff && assignedStaff !== 'GEEN') {
         const closingMinutes = endHour * 60
-        if (actualStartMinutes < closingMinutes) {
+        if (scheduledStartMinutes < closingMinutes) {
           activities.push({
-            staff: action.staff,
-            startMinutes: actualStartMinutes,
-            duration: staffWorkDuration,
+            staff: assignedStaff,
+            startMinutes: scheduledStartMinutes,
+            duration: effectiveDuration,
             actionName: action.name,
             patientName: patient.name,
             type: action.type || 'other'
           })
-        } else {
-          console.warn(`⚠️ Activity ${action.name} for ${patient.name} starts at ${Math.floor(actualStartMinutes/60)}:${String(actualStartMinutes%60).padStart(2,'0')}, after closing time (${endHour}:00)`)
         }
       }
+      
       currentMinutes += action.duration
-    })
+    }
   })
 
   // Group by staff member (only those working on selected day)
@@ -150,12 +199,11 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   const getActivityColor = (type: string) => {
     switch(type) {
       case 'setup': return 'bg-purple-700'
-      case 'protocol_check': return 'bg-green-700' // Protocol check by 2nd nurse
+      case 'protocol_check': return 'bg-green-700' // Protocol / Spoelen in groen
       case 'removal': return 'bg-orange-600'
-      case 'check': return 'bg-blue-500'
-      case 'pc_switch': return 'bg-red-500' // PC wisselen voor bloedtransfusies
+      case 'pc_switch': return 'bg-blue-500' // PC wissel in blauw
+      case 'flush': return 'bg-green-700'
       case 'observation': return 'bg-green-500'
-      case 'flush': return 'bg-cyan-500'
       default: return 'bg-slate-500'
     }
   }
@@ -165,10 +213,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
       case 'setup': return 'border-purple-700'
       case 'protocol_check': return 'border-green-700'
       case 'removal': return 'border-orange-700'
-      case 'check': return 'border-blue-600'
-      case 'pc_switch': return 'border-red-600' // PC wisselen
+      case 'pc_switch': return 'border-blue-600'
+      case 'flush': return 'border-green-700'
       case 'observation': return 'border-green-600'
-      case 'flush': return 'border-cyan-600'
       default: return 'border-slate-600'
     }
   }
@@ -214,14 +261,10 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           </div>
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-green-700 rounded"></div>
-            <span>Protocol Check</span>
+            <span>Protocol / Spoelen</span>
           </div>
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-blue-500 rounded"></div>
-            <span>Check</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 bg-red-500 rounded"></div>
             <span>PC Wissel</span>
           </div>
           <div className="flex items-center gap-1">
