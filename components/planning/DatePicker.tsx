@@ -24,7 +24,7 @@ export default function DatePicker({ value, onChange, staffMembers }: DatePicker
   
   const date = new Date(value + 'T00:00:00')
   const dayOfWeek = getDayOfWeekFromDate(value)
-  const staffForDay = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
+  const staffForDay = staffMembers
   
   const currentMonth = date.getMonth()
   const currentYear = date.getFullYear()

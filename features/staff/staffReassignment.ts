@@ -17,7 +17,7 @@ export async function reassignAllStaffAssignments(
     if (allPatients.length === 0) return
     
     const dayOfWeek = getDayOfWeekFromDate(selectedDate)
-    const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
+    const availableStaff = staffMembers
     
     if (availableStaff.length === 0) return
     

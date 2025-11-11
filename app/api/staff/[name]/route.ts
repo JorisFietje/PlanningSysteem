@@ -10,7 +10,7 @@ export async function PUT(
   try {
     const decodedName = decodeURIComponent(params.name)
     const body = await request.json()
-    const { name, maxPatients, maxWorkTime, workDays } = body
+    const { name, maxPatients, maxWorkTime } = body
 
     if (!name || !maxPatients) {
       return NextResponse.json(
@@ -57,9 +57,7 @@ export async function PUT(
           name,
           maxPatients: parseInt(maxPatients),
           maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null,
-          workDays: workDays && Array.isArray(workDays) && workDays.length > 0 
-            ? JSON.stringify(workDays) 
-            : null
+          workDays: null
         }
       })
     } else {
@@ -69,9 +67,7 @@ export async function PUT(
         data: {
           maxPatients: parseInt(maxPatients),
           maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null,
-          workDays: workDays && Array.isArray(workDays) && workDays.length > 0 
-            ? JSON.stringify(workDays) 
-            : null
+          workDays: null
         }
       })
     }
@@ -80,7 +76,7 @@ export async function PUT(
       name: staff.name,
       maxPatients: staff.maxPatients,
       maxWorkTime: staff.maxWorkTime || undefined,
-      workDays: staff.workDays ? (JSON.parse(staff.workDays) as DayOfWeek[]) : []
+      workDays: []
     })
   } catch (error) {
     console.error('Failed to update staff:', error)

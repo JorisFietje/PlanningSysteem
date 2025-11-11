@@ -25,7 +25,9 @@ interface OptimizationResult {
 export async function optimizeDayPlanning(
   patients: Patient[],
   staffMembers: StaffMember[],
-  selectedDate: string
+  selectedDate: string,
+  assignedStaffNames?: string[],
+  coordinatorName?: string
 ): Promise<OptimizationResult> {
   if (patients.length === 0) {
     return {
@@ -38,7 +40,9 @@ export async function optimizeDayPlanning(
   }
 
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
-  const availableStaff = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(dayOfWeek))
+  const availableStaff = (assignedStaffNames && assignedStaffNames.length > 0)
+    ? staffMembers.filter(s => assignedStaffNames.includes(s.name))
+    : staffMembers
   
   if (availableStaff.length === 0) {
     return {
@@ -77,7 +81,7 @@ export async function optimizeDayPlanning(
 
   // Try to optimize: assign patients to best time slots
   const newStartTimes = new Map<string, string>()
-  const scheduler = new StaffScheduler(availableStaff, dayOfWeek)
+  const scheduler = new StaffScheduler(availableStaff, dayOfWeek, coordinatorName)
   const chairTracker = new ChairOccupancyTracker()
   
   let movedCount = 0
