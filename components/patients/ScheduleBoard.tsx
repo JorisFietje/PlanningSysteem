@@ -559,7 +559,7 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                     else if (isInfusion) barColor = 'bg-green-500'
                     else if (isRemoval) barColor = 'bg-orange-500'
                     
-                    const duration = action.duration
+                    const duration = action.actualDuration || action.duration
                     const durationText = (isSetup || isRemoval) ? `~${duration}m` : `${duration}m`
                     
                     return (
