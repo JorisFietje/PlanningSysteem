@@ -16,6 +16,22 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+  
+  /* Custom scrollbar for patient cards */
+  .patient-card-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.5) transparent;
+  }
+  .patient-card-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .patient-card-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .patient-card-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.5);
+    border-radius: 4px;
+  }
 }
 
 @keyframes slideIn {
