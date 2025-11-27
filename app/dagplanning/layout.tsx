@@ -88,9 +88,7 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
     loadWeekPlan()
   }, [selectedWeekStart])
 
-  useEffect(() => {
-    loadStaffMembers()
-  }, [loadStaffMembers])
+  // loadStaffMembers is already called inside useStaff on mount
 
   const loadWeekPlan = async () => {
     try {

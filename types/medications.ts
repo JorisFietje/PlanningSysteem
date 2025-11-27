@@ -28,6 +28,74 @@ export interface Medication {
 export const MEDICATIONS: Medication[] = [
   // === IMMUNOTHERAPY ===
   {
+    id: 'abatacept',
+    name: 'Abatacept',
+    displayName: 'Abatacept',
+    category: 'immunotherapy',
+    color: 'purple',
+    notes: 'Opbouw 0–2–4 weken, spoeltijd valt binnen observatie tijd',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 30, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 90 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 30, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 80 }
+      }
+    ]
+  },
+  {
+    id: 'bevacizumab_long',
+    name: 'Bevacizumab (Long)',
+    displayName: 'Bevacizumab',
+    category: 'immunotherapy',
+    color: 'purple',
+    notes: '1e 6 keer a 2 weken, volgende 6 keer a 4 weken',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 15, vpkTime: 30, observationTime: 170, flushTime: 5, totalTime: 220 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 15, vpkTime: 20, observationTime: 170, flushTime: 5, totalTime: 210 }
+      }
+    ]
+  },
+  {
+    id: 'risankizumab',
+    name: 'Risankizumab',
+    displayName: 'Risankizumab',
+    category: 'immunotherapy',
+    color: 'purple',
+    notes: 'spoeltijd valt binnen observatie tijd',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 120, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 180 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 60, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 110 }
+      }
+    ]
+  },
+  {
+    id: 'ustekinumab',
+    name: 'Ustekinumab (eenmalig IV)',
+    displayName: 'Ustekinumab',
+    category: 'immunotherapy',
+    color: 'purple',
+    notes: 'Daarna SC thuis, spoeltijd valt binnen observatie tijd',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 60, vpkTime: 30, observationTime: 60, flushTime: 5, totalTime: 150 }
+      }
+    ]
+  },
+  {
     id: 'infliximab_5mg',
     name: 'Infliximab / Inflectra 5 mg',
     displayName: 'Infliximab 5mg',
@@ -37,19 +105,19 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 175, vpkTime: 20, totalTime: 195 }
+        timing: { infusionTime: 120, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 180 }
       },
       {
         treatmentNumber: 2,
-        timing: { infusionTime: 165, vpkTime: 20, totalTime: 185 }
+        timing: { infusionTime: 120, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 170 }
       },
       {
         treatmentNumber: 3,
-        timing: { infusionTime: 90, vpkTime: 20, totalTime: 110 }
+        timing: { infusionTime: 60, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 110 }
       },
       {
         treatmentNumber: 4,
-        timing: { infusionTime: 35, vpkTime: 20, totalTime: 55 }
+        timing: { infusionTime: 30, vpkTime: 20, flushTime: 5, totalTime: 55 }
       }
     ]
   },
@@ -63,19 +131,19 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 235, vpkTime: 20, totalTime: 255 }
+        timing: { infusionTime: 180, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 240 }
       },
       {
         treatmentNumber: 2,
-        timing: { infusionTime: 225, vpkTime: 20, totalTime: 245 }
+        timing: { infusionTime: 180, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 230 }
       },
       {
         treatmentNumber: 3,
-        timing: { infusionTime: 150, vpkTime: 20, totalTime: 170 }
+        timing: { infusionTime: 90, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 140 }
       },
       {
         treatmentNumber: 4,
-        timing: { infusionTime: 70, vpkTime: 20, totalTime: 90 }
+        timing: { infusionTime: 60, vpkTime: 20, flushTime: 5, totalTime: 85 }
       }
     ]
   },
@@ -88,7 +156,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 220, vpkTime: 20, totalTime: 240 }
+        timing: { infusionTime: 220, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 280 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 220, vpkTime: 20, flushTime: 5, totalTime: 245 }
       }
     ]
   },
@@ -101,7 +173,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 200, vpkTime: 20, totalTime: 220 }
+        timing: { infusionTime: 200, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 260 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 200, vpkTime: 20, flushTime: 5, totalTime: 225 }
       }
     ]
   },
@@ -127,11 +203,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 115, vpkTime: 20, totalTime: 135 }
+        timing: { infusionTime: 60, vpkTime: 30, observationTime: 45, flushTime: 5, totalTime: 135 }
       },
       {
         treatmentNumber: 2,
-        timing: { infusionTime: 75, vpkTime: 20, totalTime: 95 }
+        timing: { infusionTime: 30, vpkTime: 20, observationTime: 45, flushTime: 5, totalTime: 95 }
       }
     ]
   },
@@ -144,7 +220,7 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 60, vpkTime: 20, totalTime: 80 }
+        timing: { infusionTime: 15, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 65 }
       }
     ]
   },
@@ -157,7 +233,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 170, vpkTime: 20, totalTime: 190 }
+        timing: { infusionTime: 30, vpkTime: 30, observationTime: 45, flushTime: 5, totalTime: 105 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 30, vpkTime: 20, observationTime: 45, flushTime: 5, totalTime: 95 }
       }
     ]
   },
@@ -169,8 +249,12 @@ export const MEDICATIONS: Medication[] = [
     color: 'purple',
     variants: [
       {
-        treatmentNumber: 1,
-        timing: { infusionTime: 100, vpkTime: 20, totalTime: 120 }
+        treatmentNumber: 3,
+        timing: { infusionTime: 30, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 80 }
+      },
+      {
+        treatmentNumber: 4,
+        timing: { infusionTime: 30, vpkTime: 20, flushTime: 5, totalTime: 55 }
       }
     ]
   },
@@ -188,7 +272,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 90, vpkTime: 30, totalTime: 120 }
+        timing: { infusionTime: 90, vpkTime: 30, flushTime: 5, totalTime: 125 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 90, vpkTime: 20, flushTime: 5, totalTime: 115 }
       }
     ]
   },
@@ -204,7 +292,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 180, vpkTime: 30, totalTime: 210 }
+        timing: { infusionTime: 180, vpkTime: 37, flushTime: 5, totalTime: 222 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 180, vpkTime: 27, flushTime: 5, totalTime: 212 }
       }
     ]
   },
@@ -221,7 +313,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 270, vpkTime: 30, totalTime: 300 }
+        timing: { infusionTime: 270, vpkTime: 44, flushTime: 5, totalTime: 319 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 270, vpkTime: 34, flushTime: 5, totalTime: 309 }
       }
     ]
   },
@@ -237,7 +333,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 55, vpkTime: 20, totalTime: 75 }
+        timing: { infusionTime: 55, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 115 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 55, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 105 }
       }
     ]
   },
@@ -250,7 +350,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 90, vpkTime: 20, totalTime: 110 }
+        timing: { infusionTime: 55, vpkTime: 30, observationTime: 30, flushTime: 5, totalTime: 115 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 55, vpkTime: 20, observationTime: 30, flushTime: 5, totalTime: 105 }
       }
     ]
   },
@@ -263,7 +367,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 90, vpkTime: 20, totalTime: 110 }
+        timing: { infusionTime: 60, vpkTime: 30, flushTime: 5, totalTime: 95 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 60, vpkTime: 20, flushTime: 5, totalTime: 85 }
       }
     ]
   },
@@ -276,7 +384,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 90, vpkTime: 20, totalTime: 110 }
+        timing: { infusionTime: 60, vpkTime: 30, flushTime: 5, totalTime: 95 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 60, vpkTime: 20, flushTime: 5, totalTime: 85 }
       }
     ]
   },
@@ -292,7 +404,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 250, vpkTime: 30, totalTime: 280 }
+        timing: { infusionTime: 170, vpkTime: 30, observationTime: 20, flushTime: 5, totalTime: 220 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 170, vpkTime: 20, observationTime: 20, flushTime: 5, totalTime: 210 }
       }
     ]
   },
@@ -324,8 +440,78 @@ export const MEDICATIONS: Medication[] = [
       }
     ]
   },
+  {
+    id: 'myozyme',
+    name: 'Myozyme',
+    displayName: 'Myozyme',
+    category: 'infusion',
+    color: 'blue',
+    notes: 'Geen vaste inlooptijd',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 220, vpkTime: 30, flushTime: 20, totalTime: 270 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 220, vpkTime: 20, flushTime: 20, totalTime: 260 }
+      }
+    ]
+  },
 
   // === OTHER MEDICATIONS ===
+  {
+    id: 'magnesiumsulfaat',
+    name: 'Magnesiumsulfaat',
+    displayName: 'Magnesiumsulfaat',
+    category: 'other',
+    color: 'gray',
+    notes: 'Geen vaste tijd (1 g/uur)',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 150, vpkTime: 30, flushTime: 5, totalTime: 185 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 150, vpkTime: 20, flushTime: 5, totalTime: 175 }
+      }
+    ]
+  },
+  {
+    id: 'prehydreren',
+    name: 'Prehydreren (voor CT)',
+    displayName: 'Prehydreren',
+    category: 'other',
+    color: 'cyan',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 60, vpkTime: 20, totalTime: 80 }
+      }
+    ]
+  },
+  {
+    id: 'graves_orbitopathie',
+    name: 'Graves orbitopathie – (500 mg)',
+    displayName: 'Graves orbitopathie',
+    category: 'other',
+    color: 'green',
+    variants: [
+      {
+        treatmentNumber: 1,
+        timing: { infusionTime: 100, vpkTime: 30, flushTime: 5, totalTime: 135 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 100, vpkTime: 20, flushTime: 5, totalTime: 125 }
+      },
+      {
+        treatmentNumber: 6,
+        timing: { infusionTime: 30, vpkTime: 20, flushTime: 5, totalTime: 55 }
+      }
+    ]
+  },
   {
     id: 'methylprednisolon',
     name: 'Methylprednisolon',
@@ -336,7 +522,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 90, vpkTime: 20, totalTime: 110 }
+        timing: { infusionTime: 60, vpkTime: 30, flushTime: 5, totalTime: 95 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 60, vpkTime: 20, flushTime: 5, totalTime: 85 }
       }
     ]
   },
@@ -362,6 +552,10 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
+        timing: { infusionTime: 30, vpkTime: 30, flushTime: 5, totalTime: 65 }
+      },
+      {
+        treatmentNumber: 2,
         timing: { infusionTime: 30, vpkTime: 20, flushTime: 5, totalTime: 55 }
       }
     ]
@@ -375,6 +569,10 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
+        timing: { infusionTime: 60, vpkTime: 30, flushTime: 5, totalTime: 95 }
+      },
+      {
+        treatmentNumber: 2,
         timing: { infusionTime: 60, vpkTime: 20, flushTime: 5, totalTime: 85 }
       }
     ]
@@ -388,6 +586,10 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
+        timing: { infusionTime: 90, vpkTime: 30, flushTime: 5, totalTime: 125 }
+      },
+      {
+        treatmentNumber: 2,
         timing: { infusionTime: 90, vpkTime: 20, flushTime: 5, totalTime: 115 }
       }
     ]
@@ -401,15 +603,15 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 130, vpkTime: 20, totalTime: 150 }
+        timing: { infusionTime: 60, vpkTime: 30, observationTime: 60, flushTime: 5, totalTime: 150 }
       },
       {
         treatmentNumber: 2,
-        timing: { infusionTime: 120, vpkTime: 20, totalTime: 140 }
+        timing: { infusionTime: 60, vpkTime: 20, observationTime: 60, flushTime: 5, totalTime: 140 }
       },
       {
-        treatmentNumber: 3,
-        timing: { infusionTime: 90, vpkTime: 20, totalTime: 110 }
+        treatmentNumber: 5,
+        timing: { infusionTime: 30, vpkTime: 20, flushTime: 5, totalTime: 55 }
       }
     ]
   },
@@ -423,19 +625,15 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 0, vpkTime: 20, observationTime: 60, totalTime: 80 }
+        timing: { infusionTime: 3, vpkTime: 2, observationTime: 60, totalTime: 65 }
       },
       {
         treatmentNumber: 2,
-        timing: { infusionTime: 0, vpkTime: 20, observationTime: 60, totalTime: 80 }
+        timing: { infusionTime: 3, vpkTime: 2, observationTime: 60, totalTime: 65 }
       },
       {
-        treatmentNumber: 3,
-        timing: { infusionTime: 0, vpkTime: 20, observationTime: 60, totalTime: 80 }
-      },
-      {
-        treatmentNumber: 4,
-        timing: { infusionTime: 0, vpkTime: 20, totalTime: 20 }
+        treatmentNumber: 7,
+        timing: { infusionTime: 3, vpkTime: 2, totalTime: 5 }
       }
     ]
   },
@@ -450,7 +648,7 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 170, vpkTime: 30, observationTime: 60, totalTime: 290 }
+        timing: { infusionTime: 290, vpkTime: 30, observationTime: 60, flushTime: 5, totalTime: 380 }
       }
     ]
   },
@@ -465,7 +663,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 230, vpkTime: 30, observationTime: 60, totalTime: 320 }
+        timing: { infusionTime: 320, vpkTime: 20, observationTime: 60, flushTime: 5, totalTime: 400 }
+      },
+      {
+        treatmentNumber: 4,
+        timing: { infusionTime: 320, vpkTime: 20, flushTime: 5, totalTime: 345 }
       }
     ]
   },
@@ -480,7 +682,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 130, vpkTime: 30, observationTime: 60, totalTime: 220 }
+        timing: { infusionTime: 220, vpkTime: 20, observationTime: 60, flushTime: 5, totalTime: 300 }
+      },
+      {
+        treatmentNumber: 4,
+        timing: { infusionTime: 220, vpkTime: 20, flushTime: 5, totalTime: 245 }
       }
     ]
   },
@@ -495,7 +701,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 30, vpkTime: 20, totalTime: 50 }
+        timing: { infusionTime: 15, vpkTime: 30, totalTime: 45 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 15, vpkTime: 20, totalTime: 35 }
       }
     ]
   },
@@ -508,7 +718,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 60, vpkTime: 20, totalTime: 80 }
+        timing: { infusionTime: 20, vpkTime: 30, totalTime: 50 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 20, vpkTime: 20, totalTime: 40 }
       }
     ]
   },
@@ -522,7 +736,11 @@ export const MEDICATIONS: Medication[] = [
     variants: [
       {
         treatmentNumber: 1,
-        timing: { infusionTime: 40, vpkTime: 20, totalTime: 60 }
+        timing: { infusionTime: 15, vpkTime: 30, flushTime: 5, totalTime: 50 }
+      },
+      {
+        treatmentNumber: 2,
+        timing: { infusionTime: 15, vpkTime: 20, flushTime: 5, totalTime: 40 }
       }
     ]
   },
