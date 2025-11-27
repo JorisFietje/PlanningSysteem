@@ -138,6 +138,22 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
 
   return (
     <div className={containerClass}>
+      <style dangerouslySetInnerHTML={{__html: `
+        .patient-card::-webkit-scrollbar {
+          width: 4px;
+        }
+        .patient-card::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .patient-card::-webkit-scrollbar-thumb {
+          background-color: rgba(255, 255, 255, 0.5);
+          border-radius: 4px;
+        }
+        .patient-card {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 255, 255, 0.5) transparent;
+        }
+      `}} />
       {showHeader && (
         <div className="flex items-center justify-between mb-4 pb-3 border-b">
           <h2 className="text-xl font-bold text-slate-900">Dagplanning</h2>
@@ -214,7 +230,7 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                 <div
                   key={patient.id}
                   onClick={() => setSelectedPatient(patient)}
-                  className={`absolute ${color} text-white rounded-md shadow-md hover:shadow-xl transition-all duration-200 cursor-pointer group border-2 border-white`}
+                  className={`absolute ${color} text-white rounded-md shadow-md hover:shadow-xl transition-all duration-200 cursor-pointer group border-2 border-white patient-card`}
                   style={{ 
                     top: `${pos.position}px`, 
                     height: `${pos.height}px`,
@@ -225,6 +241,8 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                     minWidth: isExtremelyCompact ? '60px' : isVeryCompact ? '80px' : 'auto',
                     transformOrigin: 'center center',
                     transform: 'scale(1)',
+                    overflowY: 'auto',
+                    overflowX: 'hidden'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.transform = 'scale(1.01)'
@@ -241,18 +259,18 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                   title={`${medicationName} - Klik voor details`}
                 >
                   <div className={`font-bold leading-tight truncate ${
-                    isExtremelyCompact ? 'text-[10px]' : isVeryCompact ? 'text-xs' : 'text-sm'
+                    isExtremelyCompact ? 'text-xs' : isVeryCompact ? 'text-sm' : 'text-base'
                   }`}>
                     {medicationName}
                   </div>
-                  <div className={`mt-0.5 ${
-                    isExtremelyCompact ? 'text-[8px]' : isVeryCompact ? 'text-[10px]' : 'text-xs'
+                  <div className={`mt-0.5 font-medium ${
+                    isExtremelyCompact ? 'text-[10px]' : isVeryCompact ? 'text-xs' : 'text-sm'
                   }`}>
                     {isExtremelyCompact ? patient.startTime.slice(0, 5) : patient.startTime}
                   </div>
                   {pos.height > 50 && !isExtremelyCompact && (
                     <div className={`mt-0.5 ${
-                      isVeryCompact ? 'text-[10px]' : 'text-xs'
+                      isVeryCompact ? 'text-xs' : 'text-sm'
                     }`}>
                       {pos.duration}m
                     </div>
@@ -260,29 +278,35 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                   
                   {/* Staff assignments - only show if there's enough space */}
                   {pos.height > 70 && !isExtremelyCompact && (
-                    <div className={`mt-1.5 space-y-0.5 ${
-                      isVeryCompact ? 'text-[9px]' : 'text-[10px]'
+                    <div className={`mt-2 space-y-1 ${
+                      isVeryCompact ? 'text-[10px]' : 'text-xs'
                     }`}>
                       {setupAction?.staff && setupAction.staff !== 'Systeem' && setupAction.staff !== 'Geen' && (
-                        <div className="truncate">
-                          Prikt: {setupAction.staff}
+                        <div className="truncate flex items-center gap-1">
+                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Prikt:</span>
+                          <span className="font-semibold truncate">{setupAction.staff}</span>
                         </div>
                       )}
                       {protocolCheckAction?.staff && protocolCheckAction.staff !== 'Systeem' && protocolCheckAction.staff !== 'Geen' && (
-                        <div className="truncate">
-                          Protocol: {protocolCheckAction.staff}
+                        <div className="truncate flex items-center gap-1">
+                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Prot:</span>
+                          <span className="font-semibold truncate">{protocolCheckAction.staff}</span>
                         </div>
                       )}
                       {checkActions.length > 0 && checkActions[0]?.staff && checkActions[0].staff !== 'Systeem' && checkActions[0].staff !== 'Geen' && (
-                        <div className="truncate">
-                          Checks: {new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size > 1 
-                            ? `${new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size} VPK`
-                            : checkActions[0].staff}
+                        <div className="truncate flex items-center gap-1">
+                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Check:</span>
+                          <span className="font-semibold truncate">
+                            {new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size > 1 
+                              ? `${new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size} VPK`
+                              : checkActions[0].staff}
+                          </span>
                         </div>
                       )}
                       {removalAction?.staff && removalAction.staff !== 'Systeem' && removalAction.staff !== 'Geen' && (
-                        <div className="truncate">
-                          Afkoppelt: {removalAction.staff}
+                        <div className="truncate flex items-center gap-1">
+                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Af:</span>
+                          <span className="font-semibold truncate">{removalAction.staff}</span>
                         </div>
                       )}
                     </div>
@@ -535,7 +559,7 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                     else if (isInfusion) barColor = 'bg-green-500'
                     else if (isRemoval) barColor = 'bg-orange-500'
                     
-                    const duration = action.actualDuration || action.duration
+                    const duration = action.duration
                     const durationText = (isSetup || isRemoval) ? `~${duration}m` : `${duration}m`
                     
                     return (

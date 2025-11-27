@@ -31,8 +31,8 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const [selectedCategory, setSelectedCategory] = useState('immunotherapy')
   const [medicationId, setMedicationId] = useState(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
   const [treatmentNumber, setTreatmentNumber] = useState(1)
-  // Optional custom infusion duration (minutes)
-  const [customInfusionMinutes, setCustomInfusionMinutes] = useState<string>('')
+  // Optional custom total duration (minutes)
+  const [customTotalMinutes, setCustomTotalMinutes] = useState<string>('')
   
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
@@ -53,6 +53,17 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         if (medication) {
           setSelectedCategory(medication.category)
         }
+
+        // Calculate if there is a custom duration
+        const currentTotalDuration = editingPatient.actions.reduce((sum, action) => sum + action.duration, 0)
+        const standardBreakdown = getTreatmentBreakdown(editingPatient.medicationType, editingPatient.treatmentNumber)
+        
+        if (standardBreakdown && Math.abs(currentTotalDuration - standardBreakdown.totalTime) > 1) {
+           setCustomTotalMinutes(String(currentTotalDuration))
+        } else {
+           setCustomTotalMinutes('')
+        }
+
         // Find preferred nurse from setup action
         const setupAction = editingPatient.actions.find(a => a.name.includes('Aanbrengen'))
         if (setupAction?.staff) {
@@ -67,7 +78,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         setMedicationId(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
         setTreatmentNumber(1)
         setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '')
-        setCustomInfusionMinutes('')
+        setCustomTotalMinutes('')
       }
     }
   }, [isOpen, editingPatient])
@@ -79,9 +90,31 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
     }
   }, [isOpen, selectedDate, availableStaff, preferredNurse])
 
+  const filteredMedications = MEDICATIONS.filter(m => m.category === selectedCategory)
+  const selectedMedication = MEDICATIONS.find(m => m.id === medicationId)
+  const breakdown = medicationId ? getTreatmentBreakdown(medicationId, treatmentNumber) : null
+  
+  // Calculate effective times based on custom total time
+  const nonInfusionTime = breakdown ? (breakdown.totalTime - breakdown.infusionTime) : 0
+  const effectiveTotal = breakdown
+    ? (customTotalMinutes !== '' ? Number(customTotalMinutes) : breakdown.totalTime)
+    : 0
+  const effectiveInfusion = breakdown
+    ? Math.max(1, effectiveTotal - nonInfusionTime)
+    : 0
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (startTime && medicationId) {
+      // Calculate infusion minutes to pass to parent
+      // If customTotalMinutes is set, we derive infusion minutes from it
+      let finalInfusionMinutes: number | undefined = undefined
+      
+      if (customTotalMinutes !== '' && breakdown) {
+         const nonInfusionTime = breakdown.totalTime - breakdown.infusionTime
+         finalInfusionMinutes = Math.max(1, Number(customTotalMinutes) - nonInfusionTime)
+      }
+
       if (isEditing && editingPatient && onUpdate) {
         // Update existing patient
         onUpdate(
@@ -90,7 +123,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
           medicationId,
           treatmentNumber,
           undefined,
-          customInfusionMinutes !== '' ? Number(customInfusionMinutes) : undefined
+          finalInfusionMinutes
         )
       } else {
         // Create new patient
@@ -103,22 +136,12 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
           medicationId,
           treatmentNumber,
           undefined,
-          customInfusionMinutes !== '' ? Number(customInfusionMinutes) : undefined
+          finalInfusionMinutes
         )
       }
       onClose()
     }
   }
-
-  const filteredMedications = MEDICATIONS.filter(m => m.category === selectedCategory)
-  const selectedMedication = MEDICATIONS.find(m => m.id === medicationId)
-  const breakdown = medicationId ? getTreatmentBreakdown(medicationId, treatmentNumber) : null
-  const effectiveInfusion = breakdown
-    ? (customInfusionMinutes !== '' ? Number(customInfusionMinutes) : breakdown.infusionTime)
-    : 0
-  const effectiveTotal = breakdown
-    ? breakdown.totalTime - breakdown.infusionTime + effectiveInfusion
-    : 0
   
   const hasMultipleTreatments = selectedMedication ? selectedMedication.variants.length > 1 : false
   
@@ -232,21 +255,21 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
               label="Start Tijd (15 min intervallen)"
             />
 
-            {/* Custom infusion duration override */}
+            {/* Custom total duration override */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">
-                Infuusduur (minuten, optioneel)
+                Totale tijd (minuten, optioneel)
               </label>
               <input
                 type="number"
                 min={1}
-                placeholder={breakdown ? String(breakdown.infusionTime) : 'bijv. 120'}
-                value={customInfusionMinutes}
-                onChange={(e) => setCustomInfusionMinutes(e.target.value)}
+                placeholder={breakdown ? String(breakdown.totalTime) : 'bijv. 120'}
+                value={customTotalMinutes}
+                onChange={(e) => setCustomTotalMinutes(e.target.value)}
                 className="w-full px-3 py-2 rounded-md border-2 border-slate-200 bg-white text-slate-900 text-sm"
               />
               <p className="text-xs text-slate-500 mt-1">
-                Laat leeg om de standaardduur van het protocol te gebruiken.
+                Laat leeg om de standaardduur van het protocol te gebruiken. De infuusduur wordt automatisch aangepast.
               </p>
             </div>
 

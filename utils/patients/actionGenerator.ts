@@ -164,8 +164,9 @@ export function generateActionsForMedication(
   // 4. Flush time (if applicable)
   if (timing.flushTime && timing.flushTime > 0) {
     actions.push({
-      name: '💧 Spoelen',
+      name: 'Spoelen',
       duration: timing.flushTime,
+      actualDuration: 2, // VPK time is 2 min, machine/patient time is flushTime (5 min)
       type: 'flush',
       description: `Infuuslijn spoelen (${timing.flushTime} min)`
     })
