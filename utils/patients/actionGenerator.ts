@@ -3,7 +3,7 @@ import { getMedicationById, getMedicationVariant, Medication, MedicationVariant 
 export interface GeneratedAction {
   name: string
   duration: number
-  type: 'setup' | 'infusion' | 'check' | 'removal' | 'observation' | 'flush' | 'protocol_check' | 'pc_switch'
+  type: 'setup' | 'infusion' | 'check' | 'removal' | 'observation' | 'flush' | 'protocol_check' | 'pc_switch' | 'custom'
   actualDuration?: number
   checkOffset?: number // For checks and PC switches: minutes from START OF INFUSION (not patient start)
   description?: string
@@ -23,6 +23,18 @@ export function generateActionsForMedication(
   if (!variant) {
     console.error(`No variant found for treatment number: ${treatmentNumber}`)
     return []
+  }
+
+  if (variant.actions && variant.actions.length > 0) {
+    return [...variant.actions]
+      .sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0))
+      .map((action) => ({
+        name: action.name,
+        duration: action.duration,
+        type: (action.type as GeneratedAction['type']) || 'custom',
+        description: action.type ? `${action.type} (${action.duration} min)` : `${action.duration} min`,
+        checkOffset: undefined
+      }))
   }
 
   const actions: GeneratedAction[] = []
@@ -223,6 +235,31 @@ export function getTreatmentBreakdown(
     }
   }
 
+  if (variant.actions && variant.actions.length > 0) {
+    const actions = [...variant.actions].sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0))
+    const totalTime = actions.reduce((max, action) => {
+      const end = (action.startOffset ?? 0) + action.duration
+      return Math.max(max, end)
+    }, 0)
+
+    const typeTotals = actions.reduce((acc, action) => {
+      const type = action.type || 'custom'
+      acc[type] = (acc[type] || 0) + action.duration
+      return acc
+    }, {} as Record<string, number>)
+
+    return {
+      vpkTime: (typeTotals.setup || 0) + (typeTotals.protocol_check || 0) + (typeTotals.check || 0) + (typeTotals.pc_switch || 0) + (typeTotals.removal || 0) + (typeTotals.custom || 0),
+      protocolCheckTime: typeTotals.protocol_check || 0,
+      infusionTime: typeTotals.infusion || 0,
+      observationTime: typeTotals.observation || 0,
+      flushTime: typeTotals.flush || 0,
+      removalTime: typeTotals.removal || 0,
+      totalTime,
+      checkCount: typeTotals.check ? Math.max(1, Math.floor((typeTotals.check || 0) / 5)) : 0
+    }
+  }
+
   const timing = variant.timing
   const isInfusion = timing.infusionTime > 0
   
@@ -268,4 +305,3 @@ export function getTreatmentBreakdown(
     checkCount
   }
 }
-

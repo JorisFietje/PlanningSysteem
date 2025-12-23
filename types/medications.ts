@@ -7,9 +7,18 @@ export interface MedicationTiming {
   totalTime: number
 }
 
+export interface MedicationActionTemplate {
+  id: string
+  name: string
+  duration: number
+  type?: string
+  startOffset?: number
+}
+
 export interface MedicationVariant {
   treatmentNumber: number // 1=eerste keer, 2=2-3e keer, 3=4-6e keer, 4=7e+ keer
   timing: MedicationTiming
+  actions?: MedicationActionTemplate[]
 }
 
 export interface Medication {
@@ -22,6 +31,8 @@ export interface Medication {
   checkInterval?: number // Minutes between checks (if applicable) - ONLY for Ocrelizumab and Blood transfusions
   pcSwitchInterval?: number // Minutes between PC switches (blood transfusions only)
   pcSwitchDuration?: number // Duration of PC switch in minutes (blood transfusions only)
+  price?: number
+  effectiveFrom?: string // YYYY-MM-DD
   color: string
 }
 
@@ -746,9 +757,29 @@ export const MEDICATIONS: Medication[] = [
   },
 ]
 
+const MEDICATIONS_STORAGE_KEY = 'medicationCalibrations'
+
+export function getAllMedications(): Medication[] {
+  if (typeof window === 'undefined') return MEDICATIONS
+  const stored = localStorage.getItem(MEDICATIONS_STORAGE_KEY)
+  if (!stored) return MEDICATIONS
+  try {
+    const parsed = JSON.parse(stored)
+    if (Array.isArray(parsed)) return parsed
+  } catch {
+    // ignore
+  }
+  return MEDICATIONS
+}
+
+export function saveCalibratedMedications(meds: Medication[]): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem(MEDICATIONS_STORAGE_KEY, JSON.stringify(meds))
+}
+
 // Helper functions
 export function getMedicationById(id: string): Medication | undefined {
-  return MEDICATIONS.find(m => m.id === id)
+  return getAllMedications().find(m => m.id === id)
 }
 
 export function getMedicationVariant(medicationId: string, treatmentNumber: number): MedicationVariant | undefined {
@@ -761,7 +792,7 @@ export function getMedicationVariant(medicationId: string, treatmentNumber: numb
 }
 
 export function getMedicationsByCategory(category: string): Medication[] {
-  return MEDICATIONS.filter(m => m.category === category)
+  return getAllMedications().filter(m => m.category === category)
 }
 
 export const MEDICATION_CATEGORIES = [
@@ -778,4 +809,3 @@ export const TREATMENT_NUMBER_OPTIONS = [
   { value: 3, label: '4e - 6e behandeling' },
   { value: 4, label: '7e+ behandeling' },
 ]
-

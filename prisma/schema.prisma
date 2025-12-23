@@ -50,11 +50,29 @@ model WeekPlan {
   updatedAt       DateTime @updatedAt
   staffSchedules  WeekStaffSchedule[]
   treatments      WeekTreatment[]
+  dayCapacities   WeekDayCapacity[]
   generatedPatients String? // JSON string of generated patient IDs
 
   @@unique([weekStartDate])
   @@index([weekStartDate])
   @@map("week_plans")
+}
+
+model WeekDayCapacity {
+  id                String   @id @default(cuid())
+  weekPlanId        String
+  weekPlan          WeekPlan @relation(fields: [weekPlanId], references: [id], onDelete: Cascade)
+  date              String   // YYYY-MM-DD
+  plannedPatients   Int?
+  agreedMaxPatients Int?
+  note              String?
+  sennaNote         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([weekPlanId, date])
+  @@index([date])
+  @@map("week_day_capacities")
 }
 
 model WeekStaffSchedule {
@@ -93,4 +111,3 @@ model Staff {
 
   @@map("staff")
 }
-

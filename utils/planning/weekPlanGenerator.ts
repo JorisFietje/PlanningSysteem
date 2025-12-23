@@ -1,5 +1,5 @@
 import { DayOfWeek, StaffMember, getDayOfWeekFromDate, getDailyPatientCapacity, formatDateToISO } from '@/types'
-import { MEDICATIONS } from '@/types'
+import { getAllMedications } from '@/types'
 import { generateActionsForMedication, calculateTotalTreatmentTime } from '../patients/actionGenerator'
 import { StaffScheduler } from '../staff/staffAssignment'
 import { ChairOccupancyTracker } from '../capacity/chairOccupancy'
@@ -161,7 +161,7 @@ export async function generateWeekPlan(
         }
 
         // Create patient
-        const medication = MEDICATIONS.find(m => m.id === treatment.medicationId)
+        const medication = getAllMedications().find(m => m.id === treatment.medicationId)
         const patientName = `Patiënt - ${medication?.displayName || treatment.medicationId} (${treatment.treatmentNumber}e)`
 
         try {
@@ -285,4 +285,3 @@ function shuffleArray<T>(array: T[]): T[] {
   }
   return shuffled
 }
-
