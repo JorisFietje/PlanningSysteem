@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWeekplanningContext } from '../layout'
 import CapOverview from '@/components/planning/CapOverview'
 import DayStaffModal from '@/components/planning/DayStaffModal'
@@ -64,6 +64,7 @@ export default function CapOverzichtPage() {
     }>
   >([])
   const [plannedCounts, setPlannedCounts] = useState<Record<string, number>>({})
+  const pendingDayCapacitySaves = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const [staffModal, setStaffModal] = useState<{
     isOpen: boolean
     weekStart: string
@@ -221,6 +222,38 @@ export default function CapOverzichtPage() {
     )
   }
 
+  const scheduleDayCapacitySave = (
+    key: string,
+    payload: {
+      weekStartDate: string
+      date: string
+      plannedPatients: number | null
+      agreedMaxPatients: number | null
+      note: string | null
+      sennaNote: string | null
+    }
+  ) => {
+    const existingTimeout = pendingDayCapacitySaves.current.get(key)
+    if (existingTimeout) {
+      clearTimeout(existingTimeout)
+    }
+    const timeoutId = setTimeout(async () => {
+      try {
+        await ensureWeekPlanExists(payload.weekStartDate)
+        await fetch('/api/weekplan/day-capacity', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      } catch (error) {
+        console.error('Failed to update day capacity:', error)
+      } finally {
+        pendingDayCapacitySaves.current.delete(key)
+      }
+    }, 400)
+    pendingDayCapacitySaves.current.set(key, timeoutId)
+  }
+
   const handleUpdateDayCapacity = async (
     weekStart: string,
     date: string,
@@ -245,19 +278,13 @@ export default function CapOverzichtPage() {
       })
     )
 
-    await ensureWeekPlanExists(weekStart)
-
-    await fetch('/api/weekplan/day-capacity', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        weekStartDate: getMondayOfWeek(date),
-        date,
-        plannedPatients: updates.plannedPatients ?? null,
-        agreedMaxPatients: updates.agreedMaxPatients ?? null,
-        note: updates.note ?? null,
-        sennaNote: updates.sennaNote ?? null
-      })
+    scheduleDayCapacitySave(`${weekStart}-${date}`, {
+      weekStartDate: getMondayOfWeek(date),
+      date,
+      plannedPatients: updates.plannedPatients ?? null,
+      agreedMaxPatients: updates.agreedMaxPatients ?? null,
+      note: updates.note ?? null,
+      sennaNote: updates.sennaNote ?? null
     })
   }
 
@@ -300,27 +327,13 @@ export default function CapOverzichtPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-slate-900">CAP Overzicht</h2>
-          <p className="text-sm text-slate-600">Bekijk 4 weken per maand en wissel eenvoudig van maand.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-semibold text-slate-600">Maand:</label>
-          <input
-            type="month"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-        </div>
-      </div>
-
+    <>  
       <CapOverview
         weeks={weeks}
         staffMembers={staffMembers}
         plannedCounts={plannedCounts}
+        monthValue={selectedMonth}
+        onMonthChange={setSelectedMonth}
         onEditDayStaff={handleOpenStaffModal}
         onUpdateDayCapacity={handleUpdateDayCapacity}
       />
@@ -339,6 +352,6 @@ export default function CapOverzichtPage() {
         onClose={() => setStaffModal({ ...staffModal, isOpen: false })}
         onSave={handleSaveStaff}
       />
-    </div>
+    </>
   )
 }

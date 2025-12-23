@@ -33,18 +33,6 @@ export default function Statistics({ patients, workload, selectedDay, staffMembe
   
   const totalActions = patients.reduce((sum, p) => sum + p.actions.filter(a => a.type !== 'infusion').length, 0)
 
-  const workloadSummary = (() => {
-    if (workload.length === 0) {
-      return { peakTime: '--:--', maxConcurrent: 0 }
-    }
-    const maxConcurrent = Math.max(...workload.map(w => w.count))
-    const peakSlot = workload.find(w => w.count === maxConcurrent)
-    return {
-      peakTime: peakSlot ? peakSlot.time : '--:--',
-      maxConcurrent
-    }
-  })()
-
   const cards: Array<{ label: string; value: string; subValue?: string; icon: JSX.Element }> = [
     {
       label: 'Patiënten',
@@ -64,42 +52,24 @@ export default function Statistics({ patients, workload, selectedDay, staffMembe
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
         </svg>
       )
-    },
-    {
-      label: 'Drukste Tijd',
-      value: workloadSummary.peakTime,
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      )
-    },
-    {
-      label: 'Max Gelijktijdig',
-      value: `${workloadSummary.maxConcurrent}`,
-      icon: (
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-        </svg>
-      )
     }
   ]
 
   return (
-    <div className="flex flex-wrap items-center gap-3 text-white">
+    <div className="flex flex-wrap items-center gap-2 text-white">
       {cards.map(({ label, value, subValue, icon }) => (
         <div
           key={label}
-          className="flex items-center gap-3 bg-blue-500/30 text-white backdrop-blur rounded-xl px-4 py-2 border border-white/20 shadow-sm"
+          className="flex items-center gap-2 bg-blue-500/30 text-white backdrop-blur rounded-lg px-3 py-1.5 border border-white/20 shadow-sm"
         >
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-white/20">
+          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-white/20">
             {icon}
           </div>
           <div className="leading-tight">
-            <div className="text-xs uppercase tracking-wide text-white/80">{label}</div>
-            <div className="text-lg font-semibold">
+            <div className="text-[10px] uppercase tracking-wide text-white/80">{label}</div>
+            <div className="text-base font-semibold">
               {value}
-              {subValue && <span className="ml-1 text-sm font-normal text-white/70">{subValue}</span>}
+              {subValue && <span className="ml-1 text-xs font-normal text-white/70">{subValue}</span>}
             </div>
           </div>
         </div>
