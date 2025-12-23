@@ -45,6 +45,18 @@ const navTree: NavSection[] = [
     ]
   },
   {
+    label: 'Dashboard',
+    base: '/dashboard',
+    icon: (
+      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3a1 1 0 011 1v16a1 1 0 11-2 0V4a1 1 0 011-1zm-6 7a1 1 0 011 1v9a1 1 0 11-2 0v-9a1 1 0 011-1zm12 4a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1z" />
+      </svg>
+    ),
+    items: [
+      { label: 'Rapportage', href: '/dashboard/rapportage' }
+    ]
+  },
+  {
     label: 'Calibratie',
     base: '/calibratie',
     icon: (

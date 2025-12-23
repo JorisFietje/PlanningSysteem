@@ -69,8 +69,36 @@ export default function CapOverview({
   onUpdateDayCapacity
 }: CapOverviewProps) {
   const [collapsedWeeks, setCollapsedWeeks] = useState<Record<string, boolean>>({})
+  const [maxPatientsDraft, setMaxPatientsDraft] = useState<Record<string, string>>({})
+  const [supportsMonthInput, setSupportsMonthInput] = useState(false)
   const initializedDefaultsRef = useRef<Set<string>>(new Set())
   const dayCoordinators = getDayCoordinators()
+  const monthNames = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december']
+  const monthRange = useMemo(() => {
+    const years: number[] = []
+    weeks.forEach(week => {
+      week.dates.forEach(date => {
+        if (!date) return
+        const year = Number(date.slice(0, 4))
+        if (!Number.isNaN(year)) years.push(year)
+      })
+    })
+    if (monthValue) {
+      const year = Number(monthValue.slice(0, 4))
+      if (!Number.isNaN(year)) years.push(year)
+    }
+    const fallbackYear = new Date().getFullYear()
+    const minYear = years.length ? Math.min(...years) : fallbackYear
+    const maxYear = years.length ? Math.max(...years) : fallbackYear
+    return { minYear, maxYear }
+  }, [weeks, monthValue])
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const input = document.createElement('input')
+    input.setAttribute('type', 'month')
+    input.value = 'not-a-month'
+    setSupportsMonthInput(input.value !== 'not-a-month')
+  }, [])
 
   const today = useMemo(() => {
     const now = new Date()
@@ -88,6 +116,7 @@ export default function CapOverview({
       return next
     })
   }, [weeks])
+
 
   useEffect(() => {
     const nextInitialized = new Set(initializedDefaultsRef.current)
@@ -108,7 +137,7 @@ export default function CapOverview({
         const coordinator = week.coordinatorByDay[day] || null
         const regularStaff = coordinator ? availableStaff.filter(s => s.name !== coordinator) : availableStaff
         const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
-        const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount() : 0)
+        const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount(date) : 0)
 
         if (!nextInitialized.has(key)) {
           onUpdateDayCapacity(week.weekStart, date, { agreedMaxPatients: maxCapacity })
@@ -145,6 +174,12 @@ export default function CapOverview({
     return 'bg-slate-50 text-slate-500 border-slate-200'
   }
 
+  const formatMonthLabel = (value: string) => {
+    const [year, month] = value.split('-')
+    const date = new Date(Number(year), Number(month) - 1, 1)
+    return date.toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })
+  }
+
   return (
     <div className="bg-white rounded-lg p-3 shadow-sm border border-slate-200">
       {(monthValue && onMonthChange) && (
@@ -152,12 +187,52 @@ export default function CapOverview({
           <div className="text-xs font-semibold text-slate-900">CAP Overzicht</div>
           <div className="flex items-center gap-2">
             <label className="text-[11px] font-semibold text-slate-600">Maand:</label>
-            <input
-              type="month"
-              value={monthValue}
-              onChange={(e) => onMonthChange(e.target.value)}
-              className="px-2 py-1 border border-slate-200 rounded-md text-xs"
-            />
+            {supportsMonthInput ? (
+              <input
+                type="month"
+                value={monthValue}
+                onChange={(e) => onMonthChange(e.target.value)}
+                className="px-2 py-1 border border-slate-200 rounded-md text-xs bg-white"
+              />
+            ) : (
+              <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1">
+                <select
+                  value={monthValue.split('-')[1]}
+                  onChange={(e) => {
+                    const [year] = monthValue.split('-')
+                    onMonthChange(`${year}-${e.target.value}`)
+                  }}
+                  className="text-xs bg-transparent"
+                >
+                  {monthNames.map((name, index) => {
+                    const month = String(index + 1).padStart(2, '0')
+                    return (
+                      <option key={month} value={month}>
+                        {name}
+                      </option>
+                    )
+                  })}
+                </select>
+                <div className="h-4 w-px bg-slate-200" />
+                <select
+                  value={monthValue.split('-')[0]}
+                  onChange={(e) => {
+                    const [, month] = monthValue.split('-')
+                    onMonthChange(`${e.target.value}-${month}`)
+                  }}
+                  className="text-xs bg-transparent"
+                >
+                  {Array.from({ length: monthRange.maxYear - monthRange.minYear + 1 }, (_, index) => {
+                    const year = `${monthRange.minYear + index}`
+                    return (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    )
+                  })}
+                </select>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -204,9 +279,11 @@ export default function CapOverview({
                 const coordinator = week.coordinatorByDay[day] || null
                 const regularStaff = coordinator ? availableStaff.filter(s => s.name !== coordinator) : availableStaff
                 const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
-                const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount() : 0)
+                const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount(date) : 0)
                 const capacity = week.dayCapacities[date] || {}
                 const agreedMax = capacity.agreedMaxPatients ?? null
+                const maxInputKey = `${week.weekStart}-${date}`
+                const maxInputValue = maxPatientsDraft[maxInputKey] ?? (agreedMax ?? maxCapacity).toString()
                 const planned = plannedCounts[date] ?? capacity.plannedPatients ?? null
                 const overschrijdingBase = maxCapacity
                 const overschrijding = planned !== null ? Math.max(0, planned - overschrijdingBase) : null
@@ -229,8 +306,12 @@ export default function CapOverview({
                         type="text"
                         inputMode="numeric"
                         min={0}
-                        value={agreedMax ?? maxCapacity}
-                        onChange={(e) => onUpdateDayCapacity(week.weekStart, date, { agreedMaxPatients: parseNumericInput(e.target.value) })}
+                        value={maxInputValue}
+                        onChange={(e) => {
+                          const nextValue = e.target.value
+                          setMaxPatientsDraft(prev => ({ ...prev, [maxInputKey]: nextValue }))
+                          onUpdateDayCapacity(week.weekStart, date, { agreedMaxPatients: parseNumericInput(nextValue) })
+                        }}
                         className="w-full h-7 px-2 py-0 border border-transparent bg-slate-50/70 text-[12px] text-center focus:bg-white focus:border-slate-300"
                         placeholder={`${maxCapacity}`}
                       />

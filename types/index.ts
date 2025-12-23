@@ -92,12 +92,22 @@ export const DEPARTMENT_CONFIG = {
 
 export const DAYCO_PATIENTS_DEFAULT = 5
 
-export function getDaycoPatientsCount(): number {
+const parseStoredNumber = (value: string | null, fallback: number): number => {
+  const parsed = parseInt(value || '', 10)
+  return Number.isNaN(parsed) ? fallback : parsed
+}
+
+export function getDaycoPatientsCount(dateString?: string): number {
   if (typeof window === 'undefined') return DAYCO_PATIENTS_DEFAULT
-  const stored = localStorage.getItem('daycoPatients')
-  if (!stored) return DAYCO_PATIENTS_DEFAULT
-  const parsed = parseInt(stored, 10)
-  return Number.isNaN(parsed) ? DAYCO_PATIENTS_DEFAULT : parsed
+  const currentStored = localStorage.getItem('daycoPatientsCurrent') || localStorage.getItem('daycoPatients')
+  const nextStored = localStorage.getItem('daycoPatientsNext') || localStorage.getItem('daycoPatients')
+  const effectiveDate = localStorage.getItem('daycoPatientsEffectiveDate')
+  const current = parseStoredNumber(currentStored, DAYCO_PATIENTS_DEFAULT)
+  const next = parseStoredNumber(nextStored, current)
+
+  if (!effectiveDate) return next
+  const compareDate = dateString || new Date().toISOString().slice(0, 10)
+  return compareDate < effectiveDate ? current : next
 }
 
 /**
@@ -211,7 +221,11 @@ export function getDayCoordinators(): Record<DayOfWeek, string | null> {
  * Returns { min: number, max: number } where max is the total capacity
  * Takes into account day coordinators (4th person, limited to 5 patients)
  */
-export function getDailyPatientCapacity(day: DayOfWeek, staffMembers: StaffMember[] = STAFF_MEMBERS): { min: number; max: number; total: number } {
+export function getDailyPatientCapacity(
+  day: DayOfWeek,
+  staffMembers: StaffMember[] = STAFF_MEMBERS,
+  dateString?: string
+): { min: number; max: number; total: number } {
   // Filter staff working on this day (or have no workDays set)
   const staffForDay = staffMembers.filter(s => s.workDays.length === 0 || s.workDays.includes(day))
   
@@ -224,7 +238,7 @@ export function getDailyPatientCapacity(day: DayOfWeek, staffMembers: StaffMembe
   
   // Calculate capacity: 3 regular staff + coordinator (5 patients) if coordinator exists
   const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
-  const coordinatorCapacity = coordinator ? getDaycoPatientsCount() : 0
+  const coordinatorCapacity = coordinator ? getDaycoPatientsCount(dateString) : 0
   const totalCapacity = regularCapacity + coordinatorCapacity
   
   // Target is 90% of capacity for minimum, max is the total capacity

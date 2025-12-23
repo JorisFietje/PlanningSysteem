@@ -88,9 +88,9 @@ export default function DayStaffModal({
           </div>
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-semibold"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold"
           >
-            Sluiten
+            Opslaan
           </button>
         </div>
 
@@ -128,14 +128,20 @@ export default function DayStaffModal({
                     }}
                     className={`absolute right-2 top-2 w-7 h-7 rounded-full border flex items-center justify-center transition-colors ${
                       isCoordinator
-                        ? 'bg-amber-400 border-amber-300 text-amber-950'
-                        : 'bg-white border-slate-200 text-slate-400 hover:text-amber-500'
+                        ? 'bg-blue-600 border-blue-500 text-white'
+                        : 'bg-white border-slate-200 text-slate-400 hover:text-blue-600'
                     }`}
                     aria-label={isCoordinator ? 'Dagco verwijderen' : 'Maak dagco'}
                     title={isCoordinator ? 'Dagco verwijderen' : 'Maak dagco'}
                   >
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.956a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.449a1 1 0 00-.364 1.118l1.286 3.956c.3.921-.755 1.688-1.54 1.118l-3.37-2.449a1 1 0 00-1.175 0l-3.37 2.449c-.784.57-1.838-.197-1.539-1.118l1.285-3.956a1 1 0 00-.363-1.118L2.98 9.383c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.956z" />
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 3l2.7 5.45 6.02.87-4.36 4.25 1.03 6-5.39-2.83-5.39 2.83 1.03-6-4.36-4.25 6.02-.87L12 3z"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        strokeLinejoin="round"
+                        strokeWidth="1.2"
+                      />
                     </svg>
                   </button>
                   <div className="font-semibold text-sm">{staff.name}</div>

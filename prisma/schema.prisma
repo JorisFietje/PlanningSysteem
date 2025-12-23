@@ -111,3 +111,26 @@ model Staff {
 
   @@map("staff")
 }
+
+model DashboardDepartment {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("dashboard_departments")
+}
+
+model DashboardTracking {
+  id               String   @id @default(cuid())
+  date             String   @unique // YYYY-MM-DD
+  referralsJson    String   @default("[]")
+  wastedMedsJson   String   @default("[]")
+  noShows          Int      @default(0)
+  lateCancellations Int     @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([date])
+  @@map("dashboard_tracking")
+}

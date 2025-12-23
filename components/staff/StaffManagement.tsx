@@ -1,10 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { StaffMember, DayOfWeek, DAY_LABELS } from '@/types'
+import { StaffMember, DayOfWeek } from '@/types'
 import { getStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember, resetToDefaults } from '@/utils/staff/staffManagement'
 import ConfirmModal from '@/components/common/ConfirmModal'
-import Select from '@/components/common/Select'
 
 interface StaffManagementProps {
   onUpdate: () => void // Callback when staff is updated
@@ -25,13 +24,6 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
     workDays: []
   })
   const [error, setError] = useState<string | null>(null)
-  const [dayCoordinators, setDayCoordinators] = useState<Record<DayOfWeek, string | null>>({
-    monday: null,
-    tuesday: null,
-    wednesday: null,
-    thursday: null,
-    friday: null
-  })
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean
     title: string
@@ -49,78 +41,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
 
   useEffect(() => {
     loadStaff()
-    loadDayCoordinators()
   }, [])
-
-  const loadDayCoordinators = () => {
-    const stored = localStorage.getItem('dayCoordinators')
-    if (stored) {
-      try {
-        const loaded = JSON.parse(stored)
-        setDayCoordinators(loaded)
-      } catch (e) {
-        console.error('Error loading day coordinators:', e)
-        // Set default coordinators if loading fails
-        const defaults: Record<DayOfWeek, string | null> = {
-          monday: 'Carla',
-          tuesday: 'Emmy',
-          wednesday: 'Joyce',
-          thursday: 'Carla',
-          friday: 'Merel'
-        }
-        setDayCoordinators(defaults)
-        saveDayCoordinators(defaults)
-      }
-    } else {
-      // Set default coordinators if none exist
-      const defaults: Record<DayOfWeek, string | null> = {
-        monday: 'Carla',
-        tuesday: 'Emmy',
-        wednesday: 'Joyce',
-        thursday: 'Carla',
-        friday: 'Merel'
-      }
-      setDayCoordinators(defaults)
-      saveDayCoordinators(defaults)
-    }
-  }
-
-  const saveDayCoordinators = (coordinators: Record<DayOfWeek, string | null>) => {
-    localStorage.setItem('dayCoordinators', JSON.stringify(coordinators))
-    setDayCoordinators(coordinators)
-    onUpdate() // Notify parent to refresh
-  }
-
-  const handleSetCoordinator = async (day: DayOfWeek, staffName: string | null) => {
-    const newCoordinators = { ...dayCoordinators, [day]: staffName }
-    
-    // If a coordinator is assigned, update their workdays to include this day
-    if (staffName) {
-      const coordinatorStaff = staff.find(s => s.name === staffName)
-      if (coordinatorStaff && !coordinatorStaff.workDays.includes(day)) {
-        try {
-          const updatedWorkDays = [...coordinatorStaff.workDays, day]
-          await updateStaffMember(staffName, { ...coordinatorStaff, workDays: updatedWorkDays })
-          await loadStaff() // Reload to get updated workdays
-        } catch (error) {
-          console.error('Error updating coordinator workdays:', error)
-        }
-      }
-    }
-    
-    // If coordinator is removed, remove the day from their workdays if they're not working it normally
-    const oldCoordinator = dayCoordinators[day]
-    if (oldCoordinator && oldCoordinator !== staffName) {
-      const oldCoordinatorStaff = staff.find(s => s.name === oldCoordinator)
-      if (oldCoordinatorStaff) {
-        // Only remove if they don't have other workdays (or if this was their only workday)
-        // Actually, let's keep it simple - don't auto-remove workdays when coordinator is removed
-        // The user can manually manage workdays
-      }
-    }
-    
-    saveDayCoordinators(newCoordinators)
-  }
 
   const loadStaff = async () => {
     const loaded = await getStaffMembers()
@@ -208,15 +129,6 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
       message: 'Weet je zeker dat je wilt resetten naar standaard verpleegkundigen? Dit kan niet ongedaan worden gemaakt.',
       onConfirm: async () => {
         await resetToDefaults()
-        // Reset coordinators to null for all days
-        const emptyCoordinators: Record<DayOfWeek, string | null> = {
-          monday: null,
-          tuesday: null,
-          wednesday: null,
-          thursday: null,
-          friday: null
-        }
-        saveDayCoordinators(emptyCoordinators)
         await loadStaff()
         onUpdate()
       },
@@ -225,30 +137,12 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
     })
   }
 
-  const toggleWorkDay = (day: DayOfWeek) => {
-    setFormData(prev => ({
-      ...prev,
-      workDays: prev.workDays.includes(day)
-        ? prev.workDays.filter(d => d !== day)
-        : [...prev.workDays, day]
-    }))
-  }
-
-  // Group staff by day for overview
-  const staffByDay: Record<DayOfWeek, StaffMember[]> = {
-    monday: staff.filter(s => s.workDays.includes('monday')),
-    tuesday: staff.filter(s => s.workDays.includes('tuesday')),
-    wednesday: staff.filter(s => s.workDays.includes('wednesday')),
-    thursday: staff.filter(s => s.workDays.includes('thursday')),
-    friday: staff.filter(s => s.workDays.includes('friday')),
-  }
-
   return (
     <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 h-full overflow-auto">
       <div className="flex items-center justify-between mb-6 pb-3 border-b">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Verpleegkundige Beheer</h2>
-          <p className="text-sm text-slate-600 mt-1">Beheer verpleegkundigen en hun werkdagen</p>
+          <p className="text-sm text-slate-600 mt-1">Beheer verpleegkundigen en hun maximale capaciteit</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -310,63 +204,6 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Werktijd Beperking (optioneel)
-              </label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="hasWorkTime"
-                  checked={formData.maxWorkTime !== undefined}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    maxWorkTime: e.target.checked ? 360 : undefined
-                  }))}
-                  className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                />
-                <label htmlFor="hasWorkTime" className="text-sm text-slate-700">
-                  Werkt tot een bepaald tijdstip
-                </label>
-                {formData.maxWorkTime !== undefined && (
-                  <select
-                    value={formData.maxWorkTime}
-                    onChange={(e) => setFormData(prev => ({ ...prev, maxWorkTime: parseInt(e.target.value) }))}
-                    className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm"
-                  >
-                    <option value={300}>13:00</option>
-                    <option value={330}>13:30</option>
-                    <option value={360}>14:00</option>
-                    <option value={390}>14:30</option>
-                    <option value={420}>15:00</option>
-                    <option value={450}>15:30</option>
-                  </select>
-                )}
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">
-                Werkdagen (optioneel - kan per week worden aangepast)
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {(Object.keys(DAY_LABELS) as DayOfWeek[]).map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => toggleWorkDay(day)}
-                    className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
-                      formData.workDays.includes(day)
-                        ? 'bg-blue-700 text-white shadow-md'
-                        : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
-                    }`}
-                  >
-                    {DAY_LABELS[day]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="flex gap-2 pt-2">
               <button
                 type="submit"
@@ -386,86 +223,6 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
         </div>
       )}
 
-      {/* Staff Overview by Day */}
-      <div className="mb-6">
-        <h3 className="font-bold text-lg mb-3">Planning Overzicht per Dag</h3>
-        <div className="grid grid-cols-5 gap-3">
-          {(Object.keys(DAY_LABELS) as DayOfWeek[]).map(day => {
-            const dayStaff = staffByDay[day]
-            const coordinator = dayCoordinators[day]
-            // Filter out coordinator from regular staff (coordinator is 4th person)
-            const regularStaff = coordinator ? dayStaff.filter(s => s.name !== coordinator) : dayStaff
-            // Calculate capacity: 3 regular staff + coordinator (5 patients)
-            const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
-            const totalCapacity = regularCapacity + 5 // Coordinator always adds 5
-            
-            // Get coordinator staff member if exists
-            const coordinatorStaff = coordinator ? staff.find(s => s.name === coordinator) : null
-            
-            return (
-              <div key={day} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                <div className="font-bold text-sm text-slate-900 mb-1">{DAY_LABELS[day]}</div>
-                <div className="text-xs text-slate-600 mb-2">
-                  {regularStaff.length} VPK + 1 Coördinator • Max {totalCapacity} pat.
-                </div>
-                
-                {/* Day Coordinator Selection */}
-                <div className="mb-2">
-                  <Select
-                    value={coordinator || ''}
-                    onChange={(value) => handleSetCoordinator(day, value || null)}
-                    options={[
-                      { value: '', label: 'Geen' },
-                      ...staff
-                        .filter(s => {
-                          // Show if they're the current coordinator, or if they're not assigned as regular staff that day
-                          return s.name === coordinator || !regularStaff.some(rs => rs.name === s.name)
-                        })
-                        .map(s => ({
-                          value: s.name,
-                          label: s.name
-                        }))
-                    ]}
-                    label="Dag Coördinator:"
-                    placeholder="Selecteer coördinator"
-                    searchable={staff.length > 5}
-                    className="text-xs"
-                  />
-                </div>
-                
-                <div className="space-y-1">
-                  {/* Regular Staff (3 VPK) */}
-                  {regularStaff.length === 0 ? (
-                    <div className="text-xs text-slate-400 italic">Geen VPK</div>
-                  ) : (
-                    regularStaff.map(s => (
-                      <div 
-                        key={s.name} 
-                        className="text-xs px-2 py-1 rounded border bg-white border-slate-200"
-                      >
-                        {s.name} ({s.maxPatients})
-                      </div>
-                    ))
-                  )}
-                  
-                  {/* Coordinator (4th person) */}
-                  {coordinator && coordinatorStaff && (
-                    <div className="text-xs px-2 py-1 rounded border bg-amber-100 border-amber-300 font-semibold mt-1">
-                      <div className="flex items-center justify-between">
-                        <span>
-                          {coordinator} (5)
-                        </span>
-                        <span className="text-[9px] text-amber-600">Coördinator</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
-
       {/* Staff List */}
       <div>
         <h3 className="font-bold text-lg mb-3">Alle Verpleegkundigen ({staff.length})</h3>
@@ -475,18 +232,11 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase">Naam</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase">Max Patiënten</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase">Werktijd</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase">Werkdagen</th>
                 <th className="px-4 py-3 text-right text-xs font-semibold text-slate-700 uppercase">Acties</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {staff.map(s => {
-                // Check which days this staff member is a coordinator
-                const coordinatorDays = (Object.keys(dayCoordinators) as DayOfWeek[]).filter(
-                  day => dayCoordinators[day] === s.name
-                )
-                
                 return (
                   <tr 
                     key={s.name} 
@@ -496,30 +246,6 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
                       {s.name}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{s.maxPatients} patiënten</td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {s.maxWorkTime 
-                        ? `Tot ${Math.floor(s.maxWorkTime / 60) + 8}:${String(s.maxWorkTime % 60).padStart(2, '0')}`
-                        : 'Hele dag'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {s.workDays.map(day => {
-                          const isCoordinatorDay = coordinatorDays.includes(day)
-                          return (
-                            <span 
-                              key={day} 
-                              className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                isCoordinatorDay 
-                                  ? 'bg-amber-200 text-amber-800 border border-amber-300' 
-                                  : 'bg-blue-100 text-blue-700'
-                              }`}
-                            >
-                              {DAY_LABELS[day].substring(0, 2)}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex gap-2 justify-end">
                         <button
@@ -557,4 +283,3 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
     </div>
   )
 }
-

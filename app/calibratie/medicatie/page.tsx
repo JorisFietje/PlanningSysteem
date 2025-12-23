@@ -10,6 +10,7 @@ import {
   saveCalibratedMedications
 } from '@/types'
 import { generateActionsForMedication, getTreatmentBreakdown } from '@/utils/patients/actionGenerator'
+import Select from '@/components/common/Select'
 
 const ACTION_TEMPLATES: Array<Omit<MedicationActionTemplate, 'id' | 'startOffset'>> = [
   { name: 'Aanbrengen infuus', duration: 15, type: 'setup' },
@@ -23,7 +24,7 @@ const ACTION_TEMPLATES: Array<Omit<MedicationActionTemplate, 'id' | 'startOffset
 ]
 
 const ACTION_COLORS: Record<string, string> = {
-  setup: 'bg-blue-500',
+  setup: 'bg-orange-500',
   protocol_check: 'bg-emerald-500',
   infusion: 'bg-blue-500',
   check: 'bg-indigo-500',
@@ -44,6 +45,7 @@ const CATEGORY_LABELS: Record<Medication['category'], string> = {
 type DragPreview = { minute: number; label: string } | null
 type ResizeState = { actionId: string; startX: number; startDuration: number }
 type DragImageState = { node: HTMLElement } | null
+type DraggedAction = { label: string; duration: number; type: string } | null
 
 const buildActionTimeline = (variant: MedicationVariant) => {
   const actions = variant.actions ? [...variant.actions] : []
@@ -66,6 +68,7 @@ export default function CalibratiePage() {
   const [dragPreview, setDragPreview] = useState<DragPreview>(null)
   const [resizeState, setResizeState] = useState<ResizeState | null>(null)
   const [dragImageState, setDragImageState] = useState<DragImageState>(null)
+  const [draggedAction, setDraggedAction] = useState<DraggedAction>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -122,6 +125,10 @@ export default function CalibratiePage() {
     if (!query) return medications
     return medications.filter(med => med.displayName.toLowerCase().includes(query))
   }, [medications, search])
+  const categoryOptions = useMemo(
+    () => Object.entries(CATEGORY_LABELS).map(([value, label]) => ({ value, label })),
+    []
+  )
 
   const timelineActions = selectedVariant ? buildActionTimeline(selectedVariant) : []
   const maxActionEnd = timelineActions.reduce((max, action) => Math.max(max, (action.startOffset ?? 0) + action.duration), 0)
@@ -353,8 +360,8 @@ export default function CalibratiePage() {
 
     const rect = timelineRef.current.getBoundingClientRect()
     const x = event.clientX - rect.left
-    const rawMinutes = Math.round((x / rect.width) * timelineMinutes / 5) * 5
-    const startOffset = Math.max(0, Math.min(rawMinutes, timelineMinutes - 5))
+    const rawMinutes = Math.round((x / rect.width) * timelineMinutes)
+    const startOffset = Math.max(0, Math.min(rawMinutes, timelineMinutes - 1))
 
     const templateData = event.dataTransfer.getData('application/x-action-template')
     if (templateData) {
@@ -368,16 +375,23 @@ export default function CalibratiePage() {
       updateActionWithCollision(selectedMedication.id, selectedVariant.treatmentNumber, actionId, { startOffset })
     }
     setDragPreview(null)
+    setDraggedAction(null)
     clearDragImage()
   }
 
   const handleActionDragStart = (event: React.DragEvent<HTMLDivElement>, actionId: string) => {
     event.dataTransfer.setData('application/x-action', actionId)
     attachDragImage(event, event.currentTarget)
+    const action = timelineActions.find(item => item.id === actionId)
+    if (action) {
+      setDraggedAction({ label: action.name, duration: action.duration, type: action.type || 'custom' })
+    }
   }
 
   const handleActionDragEnd = () => {
     clearDragImage()
+    setDragPreview(null)
+    setDraggedAction(null)
   }
 
   const handleTemplateDragStart = (
@@ -386,10 +400,13 @@ export default function CalibratiePage() {
   ) => {
     event.dataTransfer.setData('application/x-action-template', JSON.stringify(template))
     attachDragImage(event, event.currentTarget)
+    setDraggedAction({ label: template.name, duration: template.duration, type: template.type || 'custom' })
   }
 
   const handleTemplateDragEnd = () => {
     clearDragImage()
+    setDragPreview(null)
+    setDraggedAction(null)
   }
 
   const handleTimelineDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -397,8 +414,7 @@ export default function CalibratiePage() {
     event.preventDefault()
     const rect = timelineRef.current.getBoundingClientRect()
     const x = event.clientX - rect.left
-    const step = 5
-    const rawMinutes = Math.round((x / rect.width) * timelineMinutes / step) * step
+    const rawMinutes = Math.round((x / rect.width) * timelineMinutes)
     const minute = Math.max(0, Math.min(rawMinutes, timelineMinutes))
     setDragPreview({ minute, label: `${minute}m` })
   }
@@ -421,8 +437,8 @@ export default function CalibratiePage() {
       if (!timelineRef.current) return
       const rect = timelineRef.current.getBoundingClientRect()
       const deltaX = event.clientX - resizeState.startX
-      const deltaMinutes = Math.round((deltaX / rect.width) * timelineMinutes / 5) * 5
-      const nextDuration = Math.max(5, resizeState.startDuration + deltaMinutes)
+      const deltaMinutes = Math.round((deltaX / rect.width) * timelineMinutes)
+      const nextDuration = Math.max(1, resizeState.startDuration + deltaMinutes)
       updateActionWithCollision(selectedMedication.id, selectedVariant.treatmentNumber, resizeState.actionId, { duration: nextDuration })
     }
     const handleUp = () => setResizeState(null)
@@ -506,17 +522,15 @@ export default function CalibratiePage() {
                         </label>
                         <label className="text-xs text-slate-500">
                           Categorie
-                          <select
-                            value={selectedMedication.category}
-                            onChange={(e) => updateMedication(selectedMedication.id, { category: e.target.value as Medication['category'] })}
-                            className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm"
-                          >
-                            {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
-                              <option key={key} value={key}>
-                                {label}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="mt-2">
+                            <Select
+                              value={selectedMedication.category}
+                              onChange={(value) => updateMedication(selectedMedication.id, { category: value as Medication['category'] })}
+                              options={categoryOptions}
+                              className="w-full"
+                              ariaLabel="Categorie selecteren"
+                            />
+                          </div>
                         </label>
                       </div>
                     </div>
@@ -639,10 +653,24 @@ export default function CalibratiePage() {
                                 )}
                                 {dragPreview && (
                                   <div
-                                    className="absolute top-6 bottom-6 rounded-md bg-blue-200/60 border border-blue-300/70 pointer-events-none"
+                                    className={`absolute top-10 rounded-lg px-2 py-1 text-xs text-white shadow-xl pointer-events-none transition-[left,width] duration-75 ${
+                                      ACTION_COLORS[draggedAction?.type || 'custom'] || 'bg-slate-500'
+                                    }`}
                                     style={{
                                       left: `${(dragPreview.minute / timelineMinutes) * 100}%`,
-                                      width: `${(5 / timelineMinutes) * 100}%`
+                                      width: `${((draggedAction?.duration || 1) / timelineMinutes) * 100}%`
+                                    }}
+                                  >
+                                    <div className="truncate">{draggedAction?.label || 'Nieuwe actie'}</div>
+                                    <div className="text-[10px] opacity-80">{draggedAction?.duration || 1}m</div>
+                                  </div>
+                                )}
+                                {dragPreview && (
+                                  <div
+                                    className="absolute top-6 bottom-6 rounded-md border border-blue-300/70 pointer-events-none"
+                                    style={{
+                                      left: `${(dragPreview.minute / timelineMinutes) * 100}%`,
+                                      width: `${(1 / timelineMinutes) * 100}%`
                                     }}
                                   />
                                 )}
