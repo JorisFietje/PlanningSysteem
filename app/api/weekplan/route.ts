@@ -28,6 +28,11 @@ export async function GET(request: NextRequest) {
           orderBy: {
             createdAt: 'asc'
           }
+        },
+        dayCapacities: {
+          orderBy: {
+            date: 'asc'
+          }
         }
       }
     })
@@ -177,4 +182,3 @@ export async function PUT(request: NextRequest) {
     )
   }
 }
-

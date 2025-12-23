@@ -86,8 +86,18 @@ export const DEPARTMENT_CONFIG = {
   TOTAL_CHAIRS: 14, // Totaal aantal stoelen op de afdeling (MAXIMUM CAPACITEIT)
   STAFF_COUNT: 3, // Aantal verpleegkundigen PER DAG (altijd 3)
   MAX_CONCURRENT_INFUSIONS: 3, // Max 3 gelijktijdige aanprik momenten (1 per verpleegkundige)
-  STAFF_PREPARATION_TIME: 30, // 30 minuten voorbereiding tussen patiënten
+  STAFF_PREPARATION_TIME: 10, // Minimale voorbereidingstijd tussen aanprikken
   TIME_SLOT_INTERVAL: 30, // Patiënten kunnen elke 30 minuten starten
+}
+
+export const DAYCO_PATIENTS_DEFAULT = 5
+
+export function getDaycoPatientsCount(): number {
+  if (typeof window === 'undefined') return DAYCO_PATIENTS_DEFAULT
+  const stored = localStorage.getItem('daycoPatients')
+  if (!stored) return DAYCO_PATIENTS_DEFAULT
+  const parsed = parseInt(stored, 10)
+  return Number.isNaN(parsed) ? DAYCO_PATIENTS_DEFAULT : parsed
 }
 
 /**
@@ -214,7 +224,7 @@ export function getDailyPatientCapacity(day: DayOfWeek, staffMembers: StaffMembe
   
   // Calculate capacity: 3 regular staff + coordinator (5 patients) if coordinator exists
   const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
-  const coordinatorCapacity = coordinator ? 5 : 0 // Coordinator always adds 5 if present
+  const coordinatorCapacity = coordinator ? getDaycoPatientsCount() : 0
   const totalCapacity = regularCapacity + coordinatorCapacity
   
   // Target is 90% of capacity for minimum, max is the total capacity

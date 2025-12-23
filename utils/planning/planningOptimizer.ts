@@ -15,7 +15,7 @@ interface OptimizationResult {
 /**
  * Advanced planning optimizer that respects all constraints:
  * - Staff availability (workdays, worktimes, max patients)
- * - Staff preparation time (30 minutes between setups)
+ * - Staff preparation time (minimum time between setups)
  * - Chair capacity (max 14 chairs)
  * - Break times (10:00-10:30, 12:00-13:00)
  * - Setup capacity (max 3 concurrent)
@@ -217,4 +217,3 @@ export async function optimizeDayPlanning(
       : `${movedCount} patiënt(en) verplaatst naar optimale tijden`
   }
 }
-

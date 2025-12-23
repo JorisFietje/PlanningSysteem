@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MEDICATIONS, MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS } from '@/types'
+import { MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, getAllMedications } from '@/types'
 import Select from '../common/Select'
 
 interface WeekTreatmentsProps {
@@ -23,8 +23,8 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
   const [selectedTreatmentNumber, setSelectedTreatmentNumber] = useState(1)
   const [quantity, setQuantity] = useState(1)
 
-  const filteredMedications = MEDICATIONS.filter(m => m.category === selectedCategory)
-  const selectedMedicationData = MEDICATIONS.find(m => m.id === selectedMedication)
+  const filteredMedications = getAllMedications().filter(m => m.category === selectedCategory)
+  const selectedMedicationData = getAllMedications().find(m => m.id === selectedMedication)
   const hasMultipleTreatments = selectedMedicationData ? selectedMedicationData.variants.length > 1 : false
 
   const handleAdd = () => {
@@ -195,7 +195,7 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
         ) : (
           <div className="space-y-3">
             {treatments.map((treatment, index) => {
-              const medication = MEDICATIONS.find(m => m.id === treatment.medicationId)
+              const medication = getAllMedications().find(m => m.id === treatment.medicationId)
               const variant = medication?.variants.find(v => v.treatmentNumber === treatment.treatmentNumber)
               const treatmentLabel = TREATMENT_NUMBER_OPTIONS.find(
                 opt => opt.value === treatment.treatmentNumber
@@ -248,4 +248,3 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
     </div>
   )
 }
-

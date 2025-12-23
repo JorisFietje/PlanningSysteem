@@ -116,9 +116,9 @@ export class StaffScheduler {
 
   /**
    * Find the best available staff member for a setup action at given time
-   * Uses ROUND-ROBIN with availability checks to ensure fair distribution
+   * Uses capacity-weighted balancing with availability checks to ensure fair distribution
    * BLOCKS setups during break times (10:00-10:30 and 12:00-13:00)
-   * ENFORCES 30 min preparation time between setups for same staff member
+   * ENFORCES preparation time between setups for same staff member
    * (Staff CAN do other actions like removal, checks, flush during prep time)
    * Returns both the staff member AND the actual start time (which may be adjusted for breaks/availability)
    */
@@ -144,50 +144,36 @@ export class StaffScheduler {
       return this.assignStaffForSetup(adjustedTime, duration)
     }
     
-    // Try each staff member starting from round-robin position
     const staffCount = this.staffMembers.length
-    let attempts = 0
-    
-    while (attempts < staffCount * 2) { // Give extra attempts to find someone
-      const staffIndex = (this.setupRoundRobinIndex + attempts) % staffCount
-      const staff = this.availability[staffIndex]
-      
-      // CHECK 1: Has staff reached their maximum patient limit?
-      const hasCapacity = staff.setupCount < staff.maxPatients
-      
-      // CHECK 2: Is this setup within staff's working hours? (Check BOTH start AND end)
-      const withinWorkingHours = !staff.maxWorkTime || endMinutes <= staff.maxWorkTime
-      
-      // CHECK 3: Has enough prep time passed since last setup?
-      const timeSinceLastSetup = requestedMinutes - staff.lastSetupTime
-      const hasEnoughPrepTime = timeSinceLastSetup >= DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME || staff.lastSetupTime === -999
-      
-      // CHECK 4: No overlapping tasks?
-      const hasNoOverlap = !this.hasOverlappingTask(staff.staff, requestedMinutes, endMinutes)
-      
-      // Debug logging removed to prevent spam
-      // if (!hasCapacity) {
-      //   console.log(`⚠️ ${staff.staff} heeft max aantal patiënten bereikt (${staff.maxPatients})`)
-      // }
-      // if (!withinWorkingHours) {
-      //   const maxHour = Math.floor((staff.maxWorkTime || 960) / 60)
-      //   console.log(`⏰ ${staff.staff} werkt alleen tot ${maxHour + 8}:00`)
-      // }
-      // if (!hasEnoughPrepTime && staff.lastSetupTime !== -999) {
-      //   const lastSetupHour = Math.floor(staff.lastSetupTime / 60)
-      //   const lastSetupMin = staff.lastSetupTime % 60
-      //   console.log(`⏳ ${staff.staff} needs ${DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME - timeSinceLastSetup} more min prep time (last setup: ${lastSetupHour}:${String(lastSetupMin).padStart(2, '0')})`)
-      // }
-      
-      if (hasCapacity && withinWorkingHours && hasEnoughPrepTime && hasNoOverlap) {
-        // Found available staff member!
-        this.scheduleTask(staff.staff, requestedMinutes, endMinutes, 'setup')
-        this.updateStaffSetup(staff.staff, requestedMinutes, duration)
-        this.setupRoundRobinIndex = (staffIndex + 1) % staffCount // Move to next for fairness
-        return { staff: staff.staff, actualStartTime: startTime, wasDelayed: false }
-      }
-      
-      attempts++
+    const candidates = this.availability
+      .map((staff, index) => ({ staff, index }))
+      .filter(({ staff }) => {
+        const hasCapacity = staff.setupCount < staff.maxPatients
+        const withinWorkingHours = !staff.maxWorkTime || endMinutes <= staff.maxWorkTime
+        const timeSinceLastSetup = requestedMinutes - staff.lastSetupTime
+        const hasEnoughPrepTime = timeSinceLastSetup >= DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME || staff.lastSetupTime === -999
+        const hasNoOverlap = !this.hasOverlappingTask(staff.staff, requestedMinutes, endMinutes)
+        return hasCapacity && withinWorkingHours && hasEnoughPrepTime && hasNoOverlap
+      })
+
+    if (candidates.length > 0) {
+      const sorted = candidates.sort((a, b) => {
+        const utilizationA = a.staff.maxPatients > 0 ? a.staff.setupCount / a.staff.maxPatients : 1
+        const utilizationB = b.staff.maxPatients > 0 ? b.staff.setupCount / b.staff.maxPatients : 1
+        if (utilizationA !== utilizationB) return utilizationA - utilizationB
+        if (a.staff.setupCount !== b.staff.setupCount) return a.staff.setupCount - b.staff.setupCount
+        if (a.staff.totalWorkload !== b.staff.totalWorkload) return a.staff.totalWorkload - b.staff.totalWorkload
+        if (a.staff.busyUntil !== b.staff.busyUntil) return a.staff.busyUntil - b.staff.busyUntil
+        const rrA = (a.index - this.setupRoundRobinIndex + staffCount) % staffCount
+        const rrB = (b.index - this.setupRoundRobinIndex + staffCount) % staffCount
+        return rrA - rrB
+      })
+
+      const selected = sorted[0]
+      this.scheduleTask(selected.staff.staff, requestedMinutes, endMinutes, 'setup')
+      this.updateStaffSetup(selected.staff.staff, requestedMinutes, duration)
+      this.setupRoundRobinIndex = (selected.index + 1) % staffCount
+      return { staff: selected.staff.staff, actualStartTime: startTime, wasDelayed: false }
     }
     
     // LAST RESORT: If truly no one available (shouldn't happen with proper simulation)
@@ -209,12 +195,15 @@ export class StaffScheduler {
     }
     
     const fallbackStaff = availableStaff.sort((a, b) => {
+      const utilizationA = a.maxPatients > 0 ? a.setupCount / a.maxPatients : 1
+      const utilizationB = b.maxPatients > 0 ? b.setupCount / b.maxPatients : 1
+      if (utilizationA !== utilizationB) return utilizationA - utilizationB
       if (a.setupCount !== b.setupCount) return a.setupCount - b.setupCount
       return a.busyUntil - b.busyUntil
     })[0]
     
     // Schedule at their next available time (but not during breaks!)
-    // MUST respect 30 min preparation time between setups!
+    // MUST respect preparation time between setups!
     const minSetupTime = fallbackStaff.lastSetupTime === -999 
       ? requestedMinutes 
       : fallbackStaff.lastSetupTime + DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME
@@ -248,7 +237,7 @@ export class StaffScheduler {
     
     // Removed console.log to prevent spam
     // if (adjustedStart > requestedMinutes) {
-    //   const delayReason = adjustedStart === minSetupTime ? '30 min prep time' : 
+    //   const delayReason = adjustedStart === minSetupTime ? 'prep time' : 
     //                       adjustedStart === fallbackStaff.busyUntil ? 'busy with other tasks' : 
     //                       'break time'
     //   console.log(`⏰ Setup delayed from ${startTime} to ${actualStartTime} for ${fallbackStaff.staff} (reason: ${delayReason})`)
@@ -353,7 +342,7 @@ export class StaffScheduler {
   private updateStaffSetup(staffName: string, setupTime: number, workMinutes: number) {
     const staff = this.availability.find(s => s.staff === staffName)
     if (staff) {
-      // VALIDATION: Check if 30 min prep time was respected
+      // VALIDATION: Check if preparation time was respected
       if (staff.lastSetupTime !== -999) {
         const timeSinceLastSetup = setupTime - staff.lastSetupTime
         if (timeSinceLastSetup < DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME) {
@@ -361,7 +350,7 @@ export class StaffScheduler {
           const setupMin = setupTime % 60
           const lastHour = Math.floor(staff.lastSetupTime / 60)
           const lastMin = staff.lastSetupTime % 60
-          console.error(`❌ VIOLATION: ${staffName} assigned setup at ${setupHour}:${String(setupMin).padStart(2, '0')}, only ${timeSinceLastSetup} min after previous setup at ${lastHour}:${String(lastMin).padStart(2, '0')} (min: 30 min)`)
+          console.error(`❌ VIOLATION: ${staffName} assigned setup at ${setupHour}:${String(setupMin).padStart(2, '0')}, only ${timeSinceLastSetup} min after previous setup at ${lastHour}:${String(lastMin).padStart(2, '0')} (min: ${DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME} min)`)
         }
       }
       
@@ -434,4 +423,3 @@ export function assignStaffRotation(actionIndex: number, staffMembers: StaffMemb
   if (staffMembers.length === 0) return 'Geen VPK'
   return staffMembers[actionIndex % staffMembers.length].name
 }
-

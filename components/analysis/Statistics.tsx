@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Patient, WorkloadSlot, DayOfWeek, StaffMember, getDailyPatientCapacity } from '@/types'
+import { Patient, WorkloadSlot, DayOfWeek, StaffMember, getDailyPatientCapacity, getDaycoPatientsCount } from '@/types'
 
 interface StatisticsProps {
   patients: Patient[]
@@ -19,7 +19,9 @@ export default function Statistics({ patients, workload, selectedDay, staffMembe
     if (assignedStaffNames && assignedStaffNames.length > 0) {
       const assigned = staffMembers.filter(s => assignedStaffNames.includes(s.name))
       const total = assigned.reduce((sum, s) => {
-        const cap = coordinatorName && s.name === coordinatorName ? Math.min(5, s.maxPatients) : s.maxPatients
+        const cap = coordinatorName && s.name === coordinatorName
+          ? Math.min(getDaycoPatientsCount(), s.maxPatients)
+          : s.maxPatients
         return sum + cap
       }, 0)
       setTargetPatients(total)
@@ -105,4 +107,3 @@ export default function Statistics({ patients, workload, selectedDay, staffMembe
     </div>
   )
 }
-

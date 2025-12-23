@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MEDICATIONS, MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate } from '@/types'
+import { MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate, getAllMedications } from '@/types'
 import { getTreatmentBreakdown } from '@/utils/patients/actionGenerator'
 import TimeSlotPicker from '../planning/TimeSlotPicker'
 import Select, { SelectOption } from '../common/Select'
@@ -23,7 +23,7 @@ function generatePatientName(medicationName: string): string {
 export default function PatientForm({ onSubmit, selectedDate, staffMembers }: PatientFormProps) {
   const [startTime, setStartTime] = useState('08:00')
   const [selectedCategory, setSelectedCategory] = useState('immunotherapy')
-  const [medicationId, setMedicationId] = useState(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
+  const [medicationId, setMedicationId] = useState(getAllMedications().find(m => m.category === 'immunotherapy')?.id || '')
   const [treatmentNumber, setTreatmentNumber] = useState(1)
   
   // Get day of week from selected date
@@ -44,19 +44,19 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
     e.preventDefault()
     if (startTime && medicationId) {
       // Auto-generate patient name
-      const medication = MEDICATIONS.find(m => m.id === medicationId)
+      const medication = getAllMedications().find(m => m.id === medicationId)
       const patientName = generatePatientName(medication?.displayName || medicationId)
       
       onSubmit(patientName, startTime, medicationId, treatmentNumber, preferredNurse)
       setStartTime('08:00') // Reset to first valid time slot
-      setMedicationId(MEDICATIONS.find(m => m.category === selectedCategory)?.id || '')
+      setMedicationId(getAllMedications().find(m => m.category === selectedCategory)?.id || '')
       setTreatmentNumber(1)
       setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '') // Reset to first available nurse
     }
   }
 
-  const filteredMedications = MEDICATIONS.filter(m => m.category === selectedCategory)
-  const selectedMedication = MEDICATIONS.find(m => m.id === medicationId)
+  const filteredMedications = getAllMedications().filter(m => m.category === selectedCategory)
+  const selectedMedication = getAllMedications().find(m => m.id === medicationId)
   const breakdown = medicationId ? getTreatmentBreakdown(medicationId, treatmentNumber) : null
   
   // Check if selected medication has multiple treatment variants
@@ -91,7 +91,7 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
             value={selectedCategory}
             onChange={(value) => {
               setSelectedCategory(value)
-              const firstMed = MEDICATIONS.find(m => m.category === value)
+              const firstMed = getAllMedications().find(m => m.category === value)
               if (firstMed) {
                 setMedicationId(firstMed.id)
                 setTreatmentNumber(1) // Reset treatment number when category changes

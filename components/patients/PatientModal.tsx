@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MEDICATIONS, MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate, Patient } from '@/types'
+import { MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate, Patient, getAllMedications } from '@/types'
 import { getTreatmentBreakdown } from '@/utils/patients/actionGenerator'
 import TimeSlotPicker from '../planning/TimeSlotPicker'
 import Select from '../common/Select'
@@ -29,7 +29,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   
   const [startTime, setStartTime] = useState('08:00')
   const [selectedCategory, setSelectedCategory] = useState('immunotherapy')
-  const [medicationId, setMedicationId] = useState(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
+  const [medicationId, setMedicationId] = useState(getAllMedications().find(m => m.category === 'immunotherapy')?.id || '')
   const [treatmentNumber, setTreatmentNumber] = useState(1)
   // Optional custom total duration (minutes)
   const [customTotalMinutes, setCustomTotalMinutes] = useState<string>('')
@@ -49,7 +49,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         setStartTime(editingPatient.startTime)
         setMedicationId(editingPatient.medicationType)
         setTreatmentNumber(editingPatient.treatmentNumber)
-        const medication = MEDICATIONS.find(m => m.id === editingPatient.medicationType)
+        const medication = getAllMedications().find(m => m.id === editingPatient.medicationType)
         if (medication) {
           setSelectedCategory(medication.category)
         }
@@ -75,7 +75,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         // Reset for new patient
         setStartTime('08:00')
         setSelectedCategory('immunotherapy')
-        setMedicationId(MEDICATIONS.find(m => m.category === 'immunotherapy')?.id || '')
+        setMedicationId(getAllMedications().find(m => m.category === 'immunotherapy')?.id || '')
         setTreatmentNumber(1)
         setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '')
         setCustomTotalMinutes('')
@@ -90,8 +90,8 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
     }
   }, [isOpen, selectedDate, availableStaff, preferredNurse])
 
-  const filteredMedications = MEDICATIONS.filter(m => m.category === selectedCategory)
-  const selectedMedication = MEDICATIONS.find(m => m.id === medicationId)
+  const filteredMedications = getAllMedications().filter(m => m.category === selectedCategory)
+  const selectedMedication = getAllMedications().find(m => m.id === medicationId)
   const breakdown = medicationId ? getTreatmentBreakdown(medicationId, treatmentNumber) : null
   
   // Calculate effective times based on custom total time
@@ -127,7 +127,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         )
       } else {
         // Create new patient
-        const medication = MEDICATIONS.find(m => m.id === medicationId)
+        const medication = getAllMedications().find(m => m.id === medicationId)
         const patientName = generatePatientName(medication?.displayName || medicationId)
         // Laat de planningsengine de verpleegkundige automatisch toewijzen
         onSubmit(
@@ -202,7 +202,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
                 onChange={(newCategory) => {
                   setSelectedCategory(newCategory)
                   // Reset medication if current selection is not in new category
-                  const newFilteredMedications = MEDICATIONS.filter(m => m.category === newCategory)
+                  const newFilteredMedications = getAllMedications().filter(m => m.category === newCategory)
                   if (!newFilteredMedications.some(m => m.id === medicationId)) {
                     setMedicationId('')
                   }
@@ -345,4 +345,3 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
     </div>
   )
 }
-

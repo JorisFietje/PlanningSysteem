@@ -1,4 +1,4 @@
-import { MEDICATIONS, STAFF_MEMBERS, DEPARTMENT_CONFIG } from '@/types'
+import { getAllMedications, STAFF_MEMBERS, DEPARTMENT_CONFIG } from '@/types'
 
 interface SimulatedPatient {
   name: string
@@ -65,7 +65,7 @@ function selectRealisticMedication(): { medicationId: string, treatmentNumber: n
   
   // 35% - Rest (65-100%) - distributed among other medications
   // EXCLUDE subcutane injecties (no infusion) - deze horen niet op infuusafdeling
-  const otherMedications = MEDICATIONS.filter(m => {
+  const otherMedications = getAllMedications().filter(m => {
     // Skip already covered medications
     if (m.id.startsWith('infliximab')) return false
     if (m.id === 'zoledroninezuur') return false
@@ -182,4 +182,3 @@ export function generateSimulationData(): SimulatedPatient[] {
 
 // Export for backward compatibility - now uses actionGenerator
 export { generateActionsForMedication as generateCheckActions } from './actionGenerator'
-
