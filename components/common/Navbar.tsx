@@ -62,7 +62,7 @@ export default function Navbar({ rightContent, variant = 'light' }: NavbarProps)
               } else {
                 isActive = pathname?.startsWith(item.href) ?? false
               }
-              const baseClasses = 'flex items-center gap-2 px-6 py-3 font-semibold transition-colors border-b-2'
+              const baseClasses = 'flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-colors border-b-2'
               const activeClasses = variant === 'primary'
                 ? 'text-white border-white'
                 : 'text-blue-600 border-blue-600'

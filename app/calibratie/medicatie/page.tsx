@@ -23,7 +23,7 @@ const ACTION_TEMPLATES: Array<Omit<MedicationActionTemplate, 'id' | 'startOffset
 ]
 
 const ACTION_COLORS: Record<string, string> = {
-  setup: 'bg-amber-500',
+  setup: 'bg-blue-500',
   protocol_check: 'bg-emerald-500',
   infusion: 'bg-blue-500',
   check: 'bg-indigo-500',
@@ -442,12 +442,12 @@ export default function CalibratiePage() {
     <div className="space-y-8">
       <section id="medicatie" className="space-y-4 scroll-mt-24">
         <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] gap-6">
-              <aside className="rounded-3xl border border-amber-100 bg-white/80 shadow-sm p-4 flex flex-col gap-4">
+              <aside className="rounded-3xl border border-blue-100 bg-white/80 shadow-sm p-4 flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Medicaties</h2>
                   <button
                     onClick={addMedication}
-                    className="px-3 py-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold shadow transition transform hover:-translate-y-0.5 hover:bg-amber-400 hover:shadow-md"
+                    className="px-3 py-1.5 rounded-full bg-blue-500 text-white text-xs font-semibold shadow transition transform hover:-translate-y-0.5 hover:bg-blue-400 hover:shadow-md"
                   >
                     + Nieuwe
                   </button>
@@ -466,7 +466,7 @@ export default function CalibratiePage() {
                       onClick={() => setSelectedMedicationId(med.id)}
                       className={`w-full text-left rounded-2xl border px-3 py-3 transition ${
                         med.id === selectedMedication?.id
-                          ? 'border-amber-400 bg-amber-100/70'
+                          ? 'border-blue-400 bg-blue-100/70'
                           : 'border-slate-200 bg-white hover:border-slate-300 hover:-translate-y-0.5 hover:shadow-sm'
                       }`}
                     >
@@ -629,17 +629,17 @@ export default function CalibratiePage() {
                                 })}
                                 {dragPreview && (
                                   <div
-                                    className="absolute top-0 bottom-0 w-[2px] bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.7)]"
+                                    className="absolute top-0 bottom-0 w-[2px] bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.7)]"
                                     style={{ left: `${(dragPreview.minute / timelineMinutes) * 100}%` }}
                                   >
-                                    <div className="absolute -top-6 -left-4 rounded-full bg-amber-500 text-white text-[10px] px-2 py-0.5">
+                                    <div className="absolute -top-6 -left-4 rounded-full bg-blue-500 text-white text-[10px] px-2 py-0.5">
                                       {dragPreview.label}
                                     </div>
                                   </div>
                                 )}
                                 {dragPreview && (
                                   <div
-                                    className="absolute top-6 bottom-6 rounded-md bg-amber-200/60 border border-amber-300/70 pointer-events-none"
+                                    className="absolute top-6 bottom-6 rounded-md bg-blue-200/60 border border-blue-300/70 pointer-events-none"
                                     style={{
                                       left: `${(dragPreview.minute / timelineMinutes) * 100}%`,
                                       width: `${(5 / timelineMinutes) * 100}%`

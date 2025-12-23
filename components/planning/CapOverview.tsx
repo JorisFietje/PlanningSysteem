@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { DayOfWeek, StaffMember, getDayCoordinators, getDaycoPatientsCount } from '@/types'
 
 interface CapOverviewWeek {
@@ -14,6 +15,8 @@ interface CapOverviewProps {
   weeks: CapOverviewWeek[]
   staffMembers: StaffMember[]
   plannedCounts: Record<string, number>
+  monthValue?: string
+  onMonthChange?: (value: string) => void
   onEditDayStaff: (weekStart: string, date: string, day: DayOfWeek) => void
   onUpdateDayCapacity: (
     weekStart: string,
@@ -46,8 +49,75 @@ const parseNumericInput = (value: string): number | null => {
   return parsed
 }
 
-export default function CapOverview({ weeks, staffMembers, plannedCounts, onEditDayStaff, onUpdateDayCapacity }: CapOverviewProps) {
+const resizeTextarea = (element: HTMLTextAreaElement, resetOnBlur = false) => {
+  if (resetOnBlur) {
+    element.style.height = '32px'
+    return
+  }
+  element.style.height = '0px'
+  const nextHeight = Math.max(element.scrollHeight, 32)
+  element.style.height = `${nextHeight}px`
+}
+
+export default function CapOverview({
+  weeks,
+  staffMembers,
+  plannedCounts,
+  monthValue,
+  onMonthChange,
+  onEditDayStaff,
+  onUpdateDayCapacity
+}: CapOverviewProps) {
+  const [collapsedWeeks, setCollapsedWeeks] = useState<Record<string, boolean>>({})
+  const initializedDefaultsRef = useRef<Set<string>>(new Set())
   const dayCoordinators = getDayCoordinators()
+
+  const today = useMemo(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  }, [])
+
+  useEffect(() => {
+    setCollapsedWeeks(prev => {
+      const next: Record<string, boolean> = { ...prev }
+      weeks.forEach(week => {
+        if (next[week.weekStart] === undefined) {
+          next[week.weekStart] = false
+        }
+      })
+      return next
+    })
+  }, [weeks])
+
+  useEffect(() => {
+    const nextInitialized = new Set(initializedDefaultsRef.current)
+    weeks.forEach(week => {
+      days.forEach((day, index) => {
+        const date = week.dates[index]
+        if (!date) return
+        const capacity = week.dayCapacities[date]
+        const agreedMax = capacity?.agreedMaxPatients ?? null
+        const key = `${week.weekStart}-${date}`
+        if (agreedMax !== null) {
+          nextInitialized.add(key)
+          return
+        }
+
+        const staffForDay = week.staffSchedule[day] || []
+        const availableStaff = staffMembers.filter(s => staffForDay.includes(s.name))
+        const coordinator = week.coordinatorByDay[day] || null
+        const regularStaff = coordinator ? availableStaff.filter(s => s.name !== coordinator) : availableStaff
+        const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
+        const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount() : 0)
+
+        if (!nextInitialized.has(key)) {
+          onUpdateDayCapacity(week.weekStart, date, { agreedMaxPatients: maxCapacity })
+          nextInitialized.add(key)
+        }
+      })
+    })
+    initializedDefaultsRef.current = nextInitialized
+  }, [weeks, staffMembers, onUpdateDayCapacity])
 
   const getDayLabel = (date: string) => {
     const dateObj = new Date(date + 'T00:00:00')
@@ -62,10 +132,10 @@ export default function CapOverview({ weeks, staffMembers, plannedCounts, onEdit
   }
 
   const plannedColor = (status: string) => {
-    if (status === 'over') return 'bg-red-100 text-red-900 border-red-200'
-    if (status === 'equal') return 'bg-yellow-100 text-yellow-900 border-yellow-200'
-    if (status === 'under') return 'bg-green-100 text-green-900 border-green-200'
-    return 'bg-white text-slate-700 border-slate-200'
+    if (status === 'over') return 'bg-red-100 text-red-900 border-transparent'
+    if (status === 'equal') return 'bg-yellow-100 text-yellow-900 border-transparent'
+    if (status === 'under') return 'bg-green-100 text-green-900 border-transparent'
+    return 'bg-white text-slate-700 border-transparent'
   }
 
   const overschrijdingColor = (status: string) => {
@@ -76,109 +146,173 @@ export default function CapOverview({ weeks, staffMembers, plannedCounts, onEdit
   }
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
+    <div className="bg-white rounded-lg p-3 shadow-sm border border-slate-200">
+      {(monthValue && onMonthChange) && (
+        <div className="flex items-center justify-between gap-2 pb-1">
+          <div className="text-xs font-semibold text-slate-900">CAP Overzicht</div>
+          <div className="flex items-center gap-2">
+            <label className="text-[11px] font-semibold text-slate-600">Maand:</label>
+            <input
+              type="month"
+              value={monthValue}
+              onChange={(e) => onMonthChange(e.target.value)}
+              className="px-2 py-1 border border-slate-200 rounded-md text-xs"
+            />
+          </div>
+        </div>
+      )}
       <div className="border border-slate-200 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
-          <div className="min-w-[1400px]">
-            <div className="grid grid-cols-[120px_70px_130px_220px_140px_110px_240px_90px_220px_140px_220px] bg-slate-50 text-xs font-semibold text-slate-600 px-3 py-2 border-b border-slate-200 sticky top-0 z-10">
-              <div>Datum</div>
-              <div className="text-center">Weekdag</div>
-              <div className="text-center">Aantal patiënten</div>
-              <div className="text-center">Max aantal patiënten afgesproken</div>
-              <div className="text-center">Max capaciteit</div>
-              <div className="text-center">Overschrijding</div>
-              <div>Opmerking</div>
-              <div className="text-center">Aantal vpk</div>
-              <div>Naam verpleegkundige</div>
-              <div className="text-center">Dagco (naam)</div>
-              <div>Opmerkingen Senna</div>
+          <div className="min-w-full">
+            <div className="grid grid-cols-[100px_70px_120px_105px_50px_70px_90px_minmax(200px,1.2fr)_70px_minmax(230px,1.4fr)_110px_minmax(220px,1.4fr)] bg-slate-50 text-[11px] font-semibold text-slate-700 px-0 py-1.5 border-b border-slate-200 sticky top-0 z-10 divide-x divide-slate-300">
+              <div className="px-2 whitespace-nowrap">Datum</div>
+              <div className="px-2 text-center whitespace-nowrap">Weekdag</div>
+              <div className="px-2 text-center whitespace-nowrap">Aantal patiënten</div>
+              <div className="px-2 text-center leading-tight">Max aantal<br />patiënten</div>
+              <div className="px-2 text-center whitespace-nowrap">Trend</div>
+              <div className="px-2 text-center leading-tight">Max<br />capaciteit</div>
+              <div className="px-2 text-center whitespace-nowrap">Overschrijding</div>
+              <div className="px-2 whitespace-nowrap">Opmerking</div>
+              <div className="px-2 text-center whitespace-nowrap">Aantal vpk</div>
+              <div className="px-2 text-center whitespace-nowrap">Naam verpleegkundige</div>
+              <div className="px-2 text-center whitespace-nowrap">Dagco (naam)</div>
+              <div className="px-2 whitespace-nowrap">Opmerkingen Senna</div>
             </div>
 
         {weeks.map((week) => {
           const weekStartDate = new Date(week.weekStart + 'T00:00:00')
           const weekNumber = getWeekNumber(weekStartDate)
+          const isCollapsed = collapsedWeeks[week.weekStart]
 
           return (
             <div key={week.weekStart}>
-              <div className="grid grid-cols-[120px_70px_130px_220px_140px_110px_240px_90px_220px_140px_220px] bg-slate-100 text-xs font-semibold text-slate-600 px-3 py-2 border-b border-slate-200">
-                <div className="col-span-11">Week {weekNumber}</div>
-              </div>
-              {days.map((day, index) => {
+              <button
+                type="button"
+                onClick={() => setCollapsedWeeks(prev => ({ ...prev, [week.weekStart]: !prev[week.weekStart] }))}
+                className="w-full grid grid-cols-[100px_70px_120px_105px_50px_70px_90px_minmax(200px,1.2fr)_70px_minmax(230px,1.4fr)_110px_minmax(220px,1.4fr)] bg-slate-100 text-[11px] font-semibold text-slate-600 px-0 py-1.5 border-b border-slate-200 text-left hover:bg-slate-200/60 transition divide-x divide-slate-300"
+                aria-expanded={!isCollapsed}
+              >
+                <div className="col-span-full flex items-center gap-1.5 px-2">
+                  <span className="text-slate-500 text-[10px]">{isCollapsed ? '▸' : '▾'}</span>
+                  Week {weekNumber}
+                </div>
+              </button>
+              {isCollapsed ? null : days.map((day, index) => {
                 const date = week.dates[index]
                 const staffForDay = week.staffSchedule[day]
                 const availableStaff = staffMembers.filter(s => staffForDay.includes(s.name))
-                const coordinator = week.coordinatorByDay[day] || dayCoordinators[day]
+                const coordinator = week.coordinatorByDay[day] || null
                 const regularStaff = coordinator ? availableStaff.filter(s => s.name !== coordinator) : availableStaff
                 const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
                 const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount() : 0)
                 const capacity = week.dayCapacities[date] || {}
                 const agreedMax = capacity.agreedMaxPatients ?? null
                 const planned = plannedCounts[date] ?? capacity.plannedPatients ?? null
-                const overschrijdingBase = agreedMax ?? maxCapacity
+                const overschrijdingBase = maxCapacity
                 const overschrijding = planned !== null ? Math.max(0, planned - overschrijdingBase) : null
                 const status = getPlannedStatus(planned, overschrijdingBase)
 
                 return (
                   <div
                     key={`${week.weekStart}-${day}`}
-                    className="grid grid-cols-[120px_70px_130px_220px_140px_110px_240px_90px_220px_140px_220px] items-center text-sm px-3 py-2 border-b border-slate-100 last:border-b-0 odd:bg-white even:bg-slate-50"
+                    className="grid grid-cols-[100px_70px_120px_105px_50px_70px_90px_minmax(200px,1.2fr)_70px_minmax(230px,1.4fr)_110px_minmax(220px,1.4fr)] items-center text-[12px] px-0 py-0 border-b border-slate-200 last:border-b-0 odd:bg-white even:bg-slate-50 divide-x divide-slate-300"
                   >
-                    <div className="text-slate-900 font-semibold">{getDayLabel(date)}</div>
-                    <div className="text-slate-600 text-center">{dayLabelShort[day]}</div>
-                    <div>
-                      <div className={`w-full px-2 py-1 border rounded text-sm text-center ${plannedColor(status)}`}>
+                    <div className="flex items-center text-slate-900 font-semibold text-[12px] px-2 h-8">{getDayLabel(date)}</div>
+                    <div className="flex items-center justify-center text-slate-600 text-[12px] px-2 h-8">{dayLabelShort[day]}</div>
+                    <div className="flex items-center justify-center px-1 h-8">
+                      <div className={`w-full h-7 flex items-center justify-center border text-[12px] font-medium ${plannedColor(status)}`}>
                         {planned ?? '—'}
                       </div>
                     </div>
-                    <div>
+                    <div className="flex items-center justify-center px-1 h-8">
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="numeric"
                         min={0}
-                        value={agreedMax ?? ''}
+                        value={agreedMax ?? maxCapacity}
                         onChange={(e) => onUpdateDayCapacity(week.weekStart, date, { agreedMaxPatients: parseNumericInput(e.target.value) })}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-sm text-center"
+                        className="w-full h-7 px-2 py-0 border border-transparent bg-slate-50/70 text-[12px] text-center focus:bg-white focus:border-slate-300"
                         placeholder={`${maxCapacity}`}
                       />
                     </div>
-                    <div className="text-slate-900 font-semibold text-center">{maxCapacity}</div>
-                    <div className="flex items-center justify-center">
-                      <span className={`px-2 py-1 rounded border text-xs font-semibold ${overschrijdingColor(status)}`}>
+                    <div className="flex items-center justify-center px-1 h-8">
+                      {agreedMax === null ? (
+                        <span className="text-[10px] text-slate-400">—</span>
+                      ) : agreedMax > maxCapacity ? (
+                        <span className="text-[12px] text-red-500">▼</span>
+                      ) : agreedMax === maxCapacity ? (
+                        <span className="text-[10px] text-slate-400">—</span>
+                      ) : (
+                        <span className="text-[12px] text-green-600">▲</span>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-center text-slate-900 font-semibold text-[12px] px-2 h-8">{maxCapacity}</div>
+                    <div className="flex items-center justify-center px-1 h-8">
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${overschrijdingColor(status)}`}>
                         {overschrijding && overschrijding > 0 ? `+${overschrijding}` : status === 'equal' ? '0' : ''}
                       </span>
                     </div>
-                    <div>
-                      <input
-                        type="text"
+                    <div className="flex items-center px-1 h-8">
+                      <textarea
+                        rows={1}
                         value={capacity.note ?? ''}
                         onChange={(e) => onUpdateDayCapacity(week.weekStart, date, { note: e.target.value })}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-sm"
-                        placeholder="—"
+                        onInput={(e) => resizeTextarea(e.currentTarget)}
+                        onFocus={(e) => resizeTextarea(e.currentTarget)}
+                        onBlur={(e) => resizeTextarea(e.currentTarget, true)}
+                        className="w-full h-7 px-1.5 py-0.5 border border-transparent bg-slate-50/70 text-[11px] leading-snug resize-none focus:bg-white focus:border-slate-300"
+                        placeholder="Voeg opmerking toe"
+                        aria-label="Opmerking invoeren"
                       />
                     </div>
                     <button
                       type="button"
                       onClick={() => onEditDayStaff(week.weekStart, date, day)}
-                      className="text-slate-700 text-center hover:text-blue-700 transition-colors"
-                      title="Verpleegkundigen bewerken"
+                      className="flex items-center justify-center text-slate-700 hover:text-blue-700 transition-colors text-[12px] px-2 h-8"
                     >
                       {staffForDay.length || '—'}
                     </button>
                     <button
                       type="button"
                       onClick={() => onEditDayStaff(week.weekStart, date, day)}
-                      className="text-slate-600 truncate text-left hover:text-blue-700 transition-colors"
-                      title="Verpleegkundigen bewerken"
+                      className="group relative w-full h-8 text-slate-600 text-[12px] transition-colors hover:text-blue-700 hover:bg-blue-50/70 rounded-none px-2"
                     >
-                      {staffForDay.length > 0 ? staffForDay.join(', ') : '—'}
+                      {staffForDay.length === 0 ? (
+                        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-blue-600 font-semibold">
+                          + toevoegen
+                        </span>
+                      ) : (
+                        <>
+                          <span className="block truncate transition-opacity group-hover:opacity-0">
+                            {staffForDay.join(', ')}
+                          </span>
+                          <span className="absolute inset-0 flex items-center justify-center text-[10px] text-blue-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                            + toevoegen
+                          </span>
+                          <div className="absolute left-1/2 top-full z-20 mt-1 hidden w-[220px] -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 text-[11px] text-slate-700 shadow-lg group-hover:block">
+                            <div className="flex flex-wrap gap-1">
+                              {staffForDay.map(name => (
+                                <span key={name} className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                                  {name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </button>
-                    <div className="text-slate-600 text-center">{coordinator || '—'}</div>
-                    <div>
-                      <input
-                        type="text"
+                    <div className="flex items-center justify-center text-slate-600 text-[12px] px-2 h-8">{coordinator || '—'}</div>
+                    <div className="flex items-center px-1 h-8">
+                      <textarea
+                        rows={1}
                         value={capacity.sennaNote ?? ''}
                         onChange={(e) => onUpdateDayCapacity(week.weekStart, date, { sennaNote: e.target.value })}
-                        className="w-full px-2 py-1 border border-slate-200 rounded text-sm"
-                        placeholder="—"
+                        onInput={(e) => resizeTextarea(e.currentTarget)}
+                        onFocus={(e) => resizeTextarea(e.currentTarget)}
+                        onBlur={(e) => resizeTextarea(e.currentTarget, true)}
+                        className="w-full h-7 px-1.5 py-0.5 border border-transparent bg-slate-50/70 text-[11px] leading-snug resize-none focus:bg-white focus:border-slate-300"
+                        placeholder="Voeg opmerking toe"
+                        aria-label="Opmerking Senna invoeren"
                       />
                     </div>
                   </div>
