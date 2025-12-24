@@ -25,8 +25,8 @@ const ACTION_TEMPLATES: Array<Omit<MedicationActionTemplate, 'id' | 'startOffset
 const ACTION_COLORS: Record<string, string> = {
   setup: 'bg-blue-500',
   protocol_check: 'bg-emerald-500',
-  infusion: 'bg-blue-500',
-  check: 'bg-indigo-500',
+  infusion: 'bg-indigo-500',
+  check: 'bg-amber-500',
   observation: 'bg-teal-500',
   flush: 'bg-cyan-500',
   removal: 'bg-rose-500',
@@ -42,7 +42,7 @@ const CATEGORY_LABELS: Record<Medication['category'], string> = {
 }
 
 type DragPreview = { minute: number; label: string } | null
-type ResizeState = { actionId: string; startX: number; startDuration: number }
+type ResizeState = { actionId: string; startX: number; startDuration: number; startOffset: number; edge: 'start' | 'end' }
 type DragImageState = { node: HTMLElement } | null
 
 const buildActionTimeline = (variant: MedicationVariant) => {
@@ -66,6 +66,8 @@ export default function CalibratiePage() {
   const [dragPreview, setDragPreview] = useState<DragPreview>(null)
   const [resizeState, setResizeState] = useState<ResizeState | null>(null)
   const [dragImageState, setDragImageState] = useState<DragImageState>(null)
+  const [actionDurationDrafts, setActionDurationDrafts] = useState<Record<string, string>>({})
+  const [actionStartDrafts, setActionStartDrafts] = useState<Record<string, string>>({})
   const timelineRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -125,7 +127,8 @@ export default function CalibratiePage() {
 
   const timelineActions = selectedVariant ? buildActionTimeline(selectedVariant) : []
   const maxActionEnd = timelineActions.reduce((max, action) => Math.max(max, (action.startOffset ?? 0) + action.duration), 0)
-  const timelineMinutes = Math.max(selectedVariant?.timing.totalTime || 0, maxActionEnd, 60)
+  const totalDuration = Math.max(maxActionEnd, 1)
+  const timelineMinutes = totalDuration
 
   const updateMedication = (medId: string, updates: Partial<Medication>) => {
     saveMedications(medications.map(med => (med.id === medId ? { ...med, ...updates } : med)))
@@ -144,6 +147,15 @@ export default function CalibratiePage() {
       })
     )
   }
+
+  useEffect(() => {
+    if (!selectedMedication || !selectedVariant) return
+    if (selectedVariant.timing.totalTime !== totalDuration) {
+      updateVariant(selectedMedication.id, selectedVariant.treatmentNumber, {
+        timing: { ...selectedVariant.timing, totalTime: totalDuration }
+      })
+    }
+  }, [totalDuration, selectedMedication, selectedVariant])
 
   const updateAction = (
     medId: string,
@@ -305,6 +317,7 @@ export default function CalibratiePage() {
         ...selectedMedication.variants,
         {
           treatmentNumber: nextNumber,
+          label: `${nextNumber}e behandeling`,
           timing: {
             infusionTime: 30,
             vpkTime: 15,
@@ -320,6 +333,16 @@ export default function CalibratiePage() {
       ]
     })
     setSelectedVariantNumber(nextNumber)
+  }
+
+  const removeVariant = (treatmentNumber: number) => {
+    if (!selectedMedication) return
+    if (selectedMedication.variants.length <= 1) return
+    const remaining = selectedMedication.variants.filter(v => v.treatmentNumber !== treatmentNumber)
+    updateMedication(selectedMedication.id, { variants: remaining })
+    if (selectedVariantNumber === treatmentNumber) {
+      setSelectedVariantNumber(remaining[0]?.treatmentNumber ?? 1)
+    }
   }
 
   const clearDragImage = () => {
@@ -353,13 +376,15 @@ export default function CalibratiePage() {
 
     const rect = timelineRef.current.getBoundingClientRect()
     const x = event.clientX - rect.left
-    const rawMinutes = Math.round((x / rect.width) * timelineMinutes / 5) * 5
-    const startOffset = Math.max(0, Math.min(rawMinutes, timelineMinutes - 5))
+    const rawMinutes = Math.round((x / rect.width) * timelineMinutes)
+    const startOffset = Math.max(0, Math.min(rawMinutes, timelineMinutes - 1))
 
     const templateData = event.dataTransfer.getData('application/x-action-template')
     if (templateData) {
       const template = JSON.parse(templateData) as Omit<MedicationActionTemplate, 'id' | 'startOffset'>
       addAction(template, startOffset)
+      setDragPreview(null)
+      clearDragImage()
       return
     }
 
@@ -377,6 +402,7 @@ export default function CalibratiePage() {
   }
 
   const handleActionDragEnd = () => {
+    setDragPreview(null)
     clearDragImage()
   }
 
@@ -389,6 +415,7 @@ export default function CalibratiePage() {
   }
 
   const handleTemplateDragEnd = () => {
+    setDragPreview(null)
     clearDragImage()
   }
 
@@ -397,8 +424,7 @@ export default function CalibratiePage() {
     event.preventDefault()
     const rect = timelineRef.current.getBoundingClientRect()
     const x = event.clientX - rect.left
-    const step = 5
-    const rawMinutes = Math.round((x / rect.width) * timelineMinutes / step) * step
+    const rawMinutes = Math.round((x / rect.width) * timelineMinutes)
     const minute = Math.max(0, Math.min(rawMinutes, timelineMinutes))
     setDragPreview({ minute, label: `${minute}m` })
   }
@@ -407,12 +433,18 @@ export default function CalibratiePage() {
     setDragPreview(null)
   }
 
-  const startResize = (event: React.PointerEvent<HTMLDivElement>, actionId: string, duration: number) => {
+  const startResize = (
+    event: React.PointerEvent<HTMLDivElement>,
+    actionId: string,
+    duration: number,
+    startOffset: number,
+    edge: 'start' | 'end'
+  ) => {
     event.stopPropagation()
     event.preventDefault()
     const target = event.currentTarget
     target.setPointerCapture(event.pointerId)
-    setResizeState({ actionId, startX: event.clientX, startDuration: duration })
+    setResizeState({ actionId, startX: event.clientX, startDuration: duration, startOffset, edge })
   }
 
   useEffect(() => {
@@ -421,9 +453,22 @@ export default function CalibratiePage() {
       if (!timelineRef.current) return
       const rect = timelineRef.current.getBoundingClientRect()
       const deltaX = event.clientX - resizeState.startX
-      const deltaMinutes = Math.round((deltaX / rect.width) * timelineMinutes / 5) * 5
-      const nextDuration = Math.max(5, resizeState.startDuration + deltaMinutes)
-      updateActionWithCollision(selectedMedication.id, selectedVariant.treatmentNumber, resizeState.actionId, { duration: nextDuration })
+      const deltaMinutes = Math.round((deltaX / rect.width) * timelineMinutes)
+      if (resizeState.edge === 'end') {
+        const desiredEnd = resizeState.startOffset + resizeState.startDuration + deltaMinutes
+        const clampedEnd = Math.min(Math.max(desiredEnd, resizeState.startOffset + 1), timelineMinutes)
+        const nextDuration = Math.max(1, clampedEnd - resizeState.startOffset)
+        updateActionWithCollision(selectedMedication.id, selectedVariant.treatmentNumber, resizeState.actionId, { duration: nextDuration })
+      } else {
+        const end = resizeState.startOffset + resizeState.startDuration
+        const desiredStart = resizeState.startOffset + deltaMinutes
+        const clampedStart = Math.min(Math.max(desiredStart, 0), end - 1)
+        const nextDuration = Math.max(1, end - clampedStart)
+        updateActionWithCollision(selectedMedication.id, selectedVariant.treatmentNumber, resizeState.actionId, {
+          startOffset: clampedStart,
+          duration: nextDuration
+        })
+      }
     }
     const handleUp = () => setResizeState(null)
     window.addEventListener('pointermove', handleMove)
@@ -534,16 +579,25 @@ export default function CalibratiePage() {
                                   : 'border-slate-300 text-slate-600 bg-white hover:border-slate-400 hover:-translate-y-0.5'
                               }`}
                             >
-                              {TREATMENT_NUMBER_OPTIONS.find(opt => opt.value === variant.treatmentNumber)?.label || `${variant.treatmentNumber}e`}
+                              {variant.label || TREATMENT_NUMBER_OPTIONS.find(opt => opt.value === variant.treatmentNumber)?.label || `${variant.treatmentNumber}e`}
                             </button>
                           ))}
                         </div>
-                        <button
-                          onClick={addVariant}
-                          className="text-xs text-slate-700 border border-slate-300 px-3 py-1.5 rounded-full bg-white transition hover:border-slate-400 hover:bg-slate-50 hover:-translate-y-0.5"
-                        >
-                          + Variant
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={addVariant}
+                            className="text-xs text-slate-700 border border-slate-300 px-3 py-1.5 rounded-full bg-white transition hover:border-slate-400 hover:bg-slate-50 hover:-translate-y-0.5"
+                          >
+                            + Variant
+                          </button>
+                          <button
+                            onClick={() => removeVariant(selectedVariant?.treatmentNumber ?? 0)}
+                            disabled={!selectedVariant || variants.length <= 1}
+                            className="text-xs text-rose-600 border border-rose-200 px-3 py-1.5 rounded-full bg-white transition hover:border-rose-300 hover:bg-rose-50 hover:-translate-y-0.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            Variant verwijderen
+                          </button>
+                        </div>
                       </div>
 
                       {selectedVariant && (
@@ -551,19 +605,25 @@ export default function CalibratiePage() {
                           <div className="space-y-4">
                             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                               <div className="flex flex-wrap gap-3 items-center justify-between">
-                                <div className="text-sm text-slate-600">Totale duur: {timelineMinutes} min</div>
-                                <label className="text-xs text-slate-500">
+                                <div className="text-sm text-slate-600">Totale duur: {totalDuration} min</div>
+                                <div className="text-xs text-slate-500">
                                   Tijdlijn duur
+                                  <span className="ml-3 inline-flex w-20 justify-center rounded-lg border border-slate-200 bg-slate-100 px-2 py-1 text-xs text-slate-700">
+                                    {selectedVariant.timing.totalTime}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="mt-3">
+                                <label className="text-xs text-slate-500">
+                                  Variant naam
                                   <input
-                                    type="number"
-                                    min={30}
-                                    value={selectedVariant.timing.totalTime}
+                                    type="text"
+                                    value={selectedVariant.label ?? ''}
                                     onChange={(e) =>
-                                      updateVariant(selectedMedication.id, selectedVariant.treatmentNumber, {
-                                        timing: { ...selectedVariant.timing, totalTime: parseInt(e.target.value, 10) || 0 }
-                                      })
+                                      updateVariant(selectedMedication.id, selectedVariant.treatmentNumber, { label: e.target.value })
                                     }
-                                    className="ml-3 w-20 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-800"
+                                    className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800"
+                                    placeholder={TREATMENT_NUMBER_OPTIONS.find(opt => opt.value === selectedVariant.treatmentNumber)?.label || `${selectedVariant.treatmentNumber}e`}
                                   />
                                 </label>
                               </div>
@@ -617,13 +677,16 @@ export default function CalibratiePage() {
                                     >
                                       <div className="truncate">{action.name}</div>
                                       <div className="text-[10px] opacity-80">{action.duration}m</div>
-                                      {action.type === 'infusion' && (
-                                        <div
-                                          onPointerDown={(event) => startResize(event, action.id, action.duration)}
-                                          className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100"
-                                          title="Sleep om duur te wijzigen"
-                                        />
-                                      )}
+                                      <div
+                                        onPointerDown={(event) => startResize(event, action.id, action.duration, start, 'start')}
+                                        className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100"
+                                        title="Sleep om start te wijzigen"
+                                      />
+                                      <div
+                                        onPointerDown={(event) => startResize(event, action.id, action.duration, start, 'end')}
+                                        className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-white/40 opacity-0 group-hover:opacity-100"
+                                        title="Sleep om duur te wijzigen"
+                                      />
                                     </div>
                                   )
                                 })}
@@ -642,7 +705,7 @@ export default function CalibratiePage() {
                                     className="absolute top-6 bottom-6 rounded-md bg-blue-200/60 border border-blue-300/70 pointer-events-none"
                                     style={{
                                       left: `${(dragPreview.minute / timelineMinutes) * 100}%`,
-                                      width: `${(5 / timelineMinutes) * 100}%`
+                                      width: `${(1 / timelineMinutes) * 100}%`
                                     }}
                                   />
                                 )}
@@ -650,17 +713,19 @@ export default function CalibratiePage() {
                             </div>
 
                             <div className="flex flex-wrap gap-2">
-                              {ACTION_TEMPLATES.map(template => (
+                              {ACTION_TEMPLATES.map(template => {
+                                const colorClass = ACTION_COLORS[template.type || 'custom'] || 'bg-slate-500'
+                                return (
                                 <button
                                   key={template.name}
                                   draggable
                                   onDragStart={(event) => handleTemplateDragStart(event, template)}
                                   onDragEnd={handleTemplateDragEnd}
-                                  className="px-3 py-2 rounded-full border border-slate-300 text-xs text-slate-700 bg-white shadow-sm transition hover:border-slate-400 hover:-translate-y-0.5 hover:shadow-md"
+                                  className={`px-3 py-2 rounded-full border border-transparent text-xs text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${colorClass}`}
                                 >
                                   {template.name}
                                 </button>
-                              ))}
+                              )})}
                             </div>
                           </div>
 
@@ -686,8 +751,22 @@ export default function CalibratiePage() {
                                       <input
                                         type="number"
                                         min={0}
-                                        value={action.duration}
-                                        onChange={(e) => updateAction(selectedMedication.id, selectedVariant.treatmentNumber, action.id, { duration: parseInt(e.target.value, 10) || 0 })}
+                                        value={actionDurationDrafts[action.id] ?? String(action.duration)}
+                                        onChange={(e) => {
+                                          const value = e.target.value
+                                          setActionDurationDrafts(prev => ({ ...prev, [action.id]: value }))
+                                          if (value === '') return
+                                          const parsed = parseInt(value, 10)
+                                          if (!Number.isNaN(parsed)) {
+                                            updateAction(selectedMedication.id, selectedVariant.treatmentNumber, action.id, { duration: parsed })
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          setActionDurationDrafts(prev => {
+                                            const { [action.id]: _, ...rest } = prev
+                                            return rest
+                                          })
+                                        }}
                                         className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800"
                                       />
                                     </label>
@@ -696,8 +775,22 @@ export default function CalibratiePage() {
                                       <input
                                         type="number"
                                         min={0}
-                                        value={action.startOffset ?? 0}
-                                        onChange={(e) => updateAction(selectedMedication.id, selectedVariant.treatmentNumber, action.id, { startOffset: parseInt(e.target.value, 10) || 0 })}
+                                        value={actionStartDrafts[action.id] ?? String(action.startOffset ?? 0)}
+                                        onChange={(e) => {
+                                          const value = e.target.value
+                                          setActionStartDrafts(prev => ({ ...prev, [action.id]: value }))
+                                          if (value === '') return
+                                          const parsed = parseInt(value, 10)
+                                          if (!Number.isNaN(parsed)) {
+                                            updateAction(selectedMedication.id, selectedVariant.treatmentNumber, action.id, { startOffset: parsed })
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          setActionStartDrafts(prev => {
+                                            const { [action.id]: _, ...rest } = prev
+                                            return rest
+                                          })
+                                        }}
                                         className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800"
                                       />
                                     </label>

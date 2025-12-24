@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { StaffMember, DayOfWeek, DAY_LABELS } from '@/types'
 import { getStaffMembers, addStaffMember, updateStaffMember, deleteStaffMember, resetToDefaults } from '@/utils/staff/staffManagement'
+import { mergeStaffWithWorkDays, setStaffWorkDays, removeStaffWorkDays, clearStaffWorkDays } from '@/utils/staff/workDays'
 import ConfirmModal from '@/components/common/ConfirmModal'
 import Select from '@/components/common/Select'
 
@@ -16,7 +17,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
   const [isAdding, setIsAdding] = useState(false)
   const [formData, setFormData] = useState<{
     name: string
-    maxPatients: number
+    maxPatients: number | ''
     maxWorkTime?: number
     workDays: DayOfWeek[]
   }>({
@@ -124,7 +125,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
 
   const loadStaff = async () => {
     const loaded = await getStaffMembers()
-    setStaff(loaded)
+    setStaff(mergeStaffWithWorkDays(loaded))
   }
 
   const handleAdd = () => {
@@ -162,16 +163,28 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
       return
     }
 
-    if (formData.maxPatients < 1 || formData.maxPatients > 50) {
+    const maxPatientsValue = typeof formData.maxPatients === 'number'
+      ? formData.maxPatients
+      : parseInt(formData.maxPatients, 10)
+
+    if (!Number.isFinite(maxPatientsValue)) {
+      setError('Max patiënten moet tussen 1 en 50 zijn')
+      return
+    }
+
+    if (maxPatientsValue < 1 || maxPatientsValue > 50) {
       setError('Max patiënten moet tussen 1 en 50 zijn')
       return
     }
 
     try {
+      const payload = { ...formData, maxPatients: maxPatientsValue }
       if (editingStaff) {
-        await updateStaffMember(editingStaff.name, formData)
+        await updateStaffMember(editingStaff.name, payload)
+        setStaffWorkDays(formData.name, formData.workDays, editingStaff.name)
       } else {
-        await addStaffMember(formData)
+        await addStaffMember(payload)
+        setStaffWorkDays(formData.name, formData.workDays)
       }
       
       await loadStaff()
@@ -190,6 +203,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
       onConfirm: async () => {
         try {
           await deleteStaffMember(name)
+          removeStaffWorkDays(name)
           await loadStaff()
           onUpdate()
         } catch (err: any) {
@@ -208,6 +222,7 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
       message: 'Weet je zeker dat je wilt resetten naar standaard verpleegkundigen? Dit kan niet ongedaan worden gemaakt.',
       onConfirm: async () => {
         await resetToDefaults()
+        clearStaffWorkDays()
         // Reset coordinators to null for all days
         const emptyCoordinators: Record<DayOfWeek, string | null> = {
           monday: null,
@@ -304,7 +319,13 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
                   min="1"
                   max="50"
                   value={formData.maxPatients}
-                  onChange={(e) => setFormData(prev => ({ ...prev, maxPatients: parseInt(e.target.value) || 0 }))}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setFormData(prev => ({
+                      ...prev,
+                      maxPatients: value === '' ? '' : parseInt(value, 10)
+                    }))
+                  }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
                 />
               </div>
@@ -385,86 +406,6 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
           </form>
         </div>
       )}
-
-      {/* Staff Overview by Day */}
-      <div className="mb-6">
-        <h3 className="font-bold text-lg mb-3">Planning Overzicht per Dag</h3>
-        <div className="grid grid-cols-5 gap-3">
-          {(Object.keys(DAY_LABELS) as DayOfWeek[]).map(day => {
-            const dayStaff = staffByDay[day]
-            const coordinator = dayCoordinators[day]
-            // Filter out coordinator from regular staff (coordinator is 4th person)
-            const regularStaff = coordinator ? dayStaff.filter(s => s.name !== coordinator) : dayStaff
-            // Calculate capacity: 3 regular staff + coordinator (5 patients)
-            const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
-            const totalCapacity = regularCapacity + 5 // Coordinator always adds 5
-            
-            // Get coordinator staff member if exists
-            const coordinatorStaff = coordinator ? staff.find(s => s.name === coordinator) : null
-            
-            return (
-              <div key={day} className="bg-slate-50 rounded-lg p-3 border border-slate-200">
-                <div className="font-bold text-sm text-slate-900 mb-1">{DAY_LABELS[day]}</div>
-                <div className="text-xs text-slate-600 mb-2">
-                  {regularStaff.length} VPK + 1 Coördinator • Max {totalCapacity} pat.
-                </div>
-                
-                {/* Day Coordinator Selection */}
-                <div className="mb-2">
-                  <Select
-                    value={coordinator || ''}
-                    onChange={(value) => handleSetCoordinator(day, value || null)}
-                    options={[
-                      { value: '', label: 'Geen' },
-                      ...staff
-                        .filter(s => {
-                          // Show if they're the current coordinator, or if they're not assigned as regular staff that day
-                          return s.name === coordinator || !regularStaff.some(rs => rs.name === s.name)
-                        })
-                        .map(s => ({
-                          value: s.name,
-                          label: s.name
-                        }))
-                    ]}
-                    label="Dag Coördinator:"
-                    placeholder="Selecteer coördinator"
-                    searchable={staff.length > 5}
-                    className="text-xs"
-                  />
-                </div>
-                
-                <div className="space-y-1">
-                  {/* Regular Staff (3 VPK) */}
-                  {regularStaff.length === 0 ? (
-                    <div className="text-xs text-slate-400 italic">Geen VPK</div>
-                  ) : (
-                    regularStaff.map(s => (
-                      <div 
-                        key={s.name} 
-                        className="text-xs px-2 py-1 rounded border bg-white border-slate-200"
-                      >
-                        {s.name} ({s.maxPatients})
-                      </div>
-                    ))
-                  )}
-                  
-                  {/* Coordinator (4th person) */}
-                  {coordinator && coordinatorStaff && (
-                    <div className="text-xs px-2 py-1 rounded border bg-amber-100 border-amber-300 font-semibold mt-1">
-                      <div className="flex items-center justify-between">
-                        <span>
-                          {coordinator} (5)
-                        </span>
-                        <span className="text-[9px] text-amber-600">Coördinator</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </div>
 
       {/* Staff List */}
       <div>
@@ -557,4 +498,3 @@ export default function StaffManagement({ onUpdate }: StaffManagementProps) {
     </div>
   )
 }
-

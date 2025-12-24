@@ -21,14 +21,15 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
   const [selectedCategory, setSelectedCategory] = useState('immunotherapy')
   const [selectedMedication, setSelectedMedication] = useState('')
   const [selectedTreatmentNumber, setSelectedTreatmentNumber] = useState(1)
-  const [quantity, setQuantity] = useState(1)
+  const [quantity, setQuantity] = useState<number | ''>(1)
 
   const filteredMedications = getAllMedications().filter(m => m.category === selectedCategory)
   const selectedMedicationData = getAllMedications().find(m => m.id === selectedMedication)
   const hasMultipleTreatments = selectedMedicationData ? selectedMedicationData.variants.length > 1 : false
 
   const handleAdd = () => {
-    if (!selectedMedication || quantity < 1) return
+    const numericQuantity = typeof quantity === 'number' ? quantity : parseInt(quantity, 10)
+    if (!selectedMedication || !Number.isFinite(numericQuantity) || numericQuantity < 1) return
 
     // Check if this treatment already exists
     const existing = treatments.find(
@@ -40,7 +41,7 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
       setTreatments(
         treatments.map(t =>
           t.medicationId === selectedMedication && t.treatmentNumber === selectedTreatmentNumber
-            ? { ...t, quantity: t.quantity + quantity }
+            ? { ...t, quantity: t.quantity + numericQuantity }
             : t
         )
       )
@@ -51,7 +52,7 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
         {
           medicationId: selectedMedication,
           treatmentNumber: selectedTreatmentNumber,
-          quantity
+          quantity: numericQuantity
         }
       ])
     }
@@ -157,7 +158,10 @@ export default function WeekTreatments({ treatments, setTreatments }: WeekTreatm
                 type="number"
                 min="1"
                 value={quantity}
-                onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                onChange={(e) => {
+                  const value = e.target.value
+                  setQuantity(value === '' ? '' : parseInt(value, 10))
+                }}
                 className="flex-1 px-3 py-2.5 border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none text-sm"
               />
               <button

@@ -9,6 +9,9 @@ interface ScheduleBoardProps {
   patients: Patient[]
   onAddPatient?: () => void
   onDeletePatient?: (patientId: string) => void
+  onUpdateInfusionDuration?: (patientId: string, actionId: string, duration: number) => Promise<boolean>
+  onUpdatePatientStartTime?: (patientId: string, startTime: string) => Promise<boolean>
+  onDuplicatePatient?: (patient: Patient) => void
   showHeader?: boolean
 }
 
@@ -18,39 +21,76 @@ interface TimeSlot {
   patient: Patient
 }
 
-export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient, showHeader = true }: ScheduleBoardProps) {
+export default function ScheduleBoard({
+  patients,
+  onAddPatient,
+  onDeletePatient,
+  onUpdateInfusionDuration,
+  onUpdatePatientStartTime,
+  onDuplicatePatient,
+  showHeader = true
+}: ScheduleBoardProps) {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   const [hoveredPatient, setHoveredPatient] = useState<{ patient: Patient, element: HTMLElement } | null>(null)
+  const [resizeState, setResizeState] = useState<{
+    patientId: string
+    actionId: string
+    startY: number
+    startDuration: number
+    minDuration: number
+    maxDuration: number
+    nonInfusionDuration: number
+  } | null>(null)
+  const [resizeDurations, setResizeDurations] = useState<Record<string, number>>({})
+  const [dragState, setDragState] = useState<{
+    patientId: string
+    startY: number
+    startMinutes: number
+    startColumn: number
+    minMinutes: number
+    maxMinutes: number
+  } | null>(null)
+  const [dragStartTimes, setDragStartTimes] = useState<Record<string, string>>({})
+  const [dragColumns, setDragColumns] = useState<Record<string, number>>({})
+  const [columnAssignments, setColumnAssignments] = useState<Record<string, number>>({})
   const tooltipRef = useRef<HTMLDivElement>(null)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const dragMovedRef = useRef(false)
   
   const startHour = 8  // Afdeling werktijden: 08:00 - 16:00
   const endHour = 16
+  const chairColumns = 17
+  const minGapMinutes = 5
   const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => {
     const h = startHour + i
     return `${h.toString().padStart(2, '0')}:00`
   })
 
-  if (patients.length === 0) {
-    return (
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 h-full">
-        <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Dagplanning</h2>
-        <div className="text-center py-16">
-          <div className="text-4xl mb-2 text-slate-300">
-            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <div className="text-lg text-slate-500">Geen patiënten ingepland</div>
-        </div>
-      </div>
-    )
+  const isEmpty = patients.length === 0
+
+  const minutesToTime = (totalMinutes: number) => {
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+  }
+
+  const getPatientStartTime = (patient: Patient) => {
+    return dragStartTimes[patient.id] ?? patient.startTime
+  }
+
+  const getPatientColumn = (patient: Patient) => {
+    return dragColumns[patient.id] ?? columnAssignments[patient.id] ?? 0
+  }
+
+  const getPatientDuration = (patient: Patient) => {
+    return resizeDurations[patient.id] ?? getTotalDuration(patient)
   }
 
   // Prepare time slots with patient data
   const timeSlots: TimeSlot[] = patients.map(patient => {
-    const [hours, minutes] = patient.startTime.split(':').map(Number)
+    const [hours, minutes] = getPatientStartTime(patient).split(':').map(Number)
     const startMinutes = hours * 60 + minutes
-    const duration = getTotalDuration(patient)
+    const duration = getPatientDuration(patient)
     return {
       startMinutes,
       endMinutes: startMinutes + duration,
@@ -58,49 +98,69 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
     }
   }).sort((a, b) => a.startMinutes - b.startMinutes || (b.endMinutes - b.startMinutes) - (a.endMinutes - a.startMinutes))
 
-  // Assign columns to avoid overlaps
-  const columns: TimeSlot[][] = []
-  
-  timeSlots.forEach(slot => {
-    let placed = false
-    
-    // Try to place in existing column
-    for (let col of columns) {
-      const hasOverlap = col.some(existing => {
-        return slot.startMinutes < existing.endMinutes && slot.endMinutes > existing.startMinutes
-      })
-      
-      if (!hasOverlap) {
-        col.push(slot)
-        placed = true
-        break
-      }
-    }
-    
-    // Create new column if needed
-    if (!placed) {
-      columns.push([slot])
-    }
-  })
+  useEffect(() => {
+    setColumnAssignments(prev => {
+      const next = { ...prev }
+      let changed = false
+      const baseSlots: TimeSlot[] = patients.map(patient => {
+        const [hours, minutes] = patient.startTime.split(':').map(Number)
+        const startMinutes = hours * 60 + minutes
+        const duration = getTotalDuration(patient)
+        return {
+          startMinutes,
+          endMinutes: startMinutes + duration,
+          patient
+        }
+      }).sort((a, b) => a.startMinutes - b.startMinutes)
 
-  // Show ALL columns (no limit)
-  const maxColumns = columns.length
+      const columns: TimeSlot[][] = Array.from({ length: chairColumns }, () => [])
+      baseSlots.forEach(slot => {
+        const existing = next[slot.patient.id]
+        if (existing !== undefined) {
+          columns[existing]?.push(slot)
+          return
+        }
+        let assigned = 0
+        for (let col = 0; col < chairColumns; col++) {
+          const hasOverlap = columns[col].some(existingSlot => {
+            return slot.startMinutes < existingSlot.endMinutes && slot.endMinutes > existingSlot.startMinutes
+          })
+          if (!hasOverlap) {
+            assigned = col
+            columns[col].push(slot)
+            break
+          }
+        }
+        next[slot.patient.id] = assigned
+        changed = true
+      })
+
+      Object.keys(next).forEach(id => {
+        if (!patients.some(p => p.id === id)) {
+          delete next[id]
+          changed = true
+        }
+      })
+
+      return changed ? next : prev
+    })
+  }, [patients, chairColumns])
+
+  const maxColumns = chairColumns
   
   // Calculate positioning for each patient
   const patientPositions = new Map()
   
-  columns.forEach((col, colIndex) => {
-    col.forEach(slot => {
-      const position = ((slot.startMinutes - (startHour * 60)) / 60) * 80
-      const height = Math.max(((slot.endMinutes - slot.startMinutes) / 60) * 80, 50)
-      
-      patientPositions.set(slot.patient.id, {
-        column: colIndex,
-        totalColumns: maxColumns,
-        position,
-        height,
-        duration: slot.endMinutes - slot.startMinutes
-      })
+  timeSlots.forEach(slot => {
+    const colIndex = getPatientColumn(slot.patient)
+    const position = ((slot.startMinutes - (startHour * 60)) / 60) * 80
+    const height = Math.max(((slot.endMinutes - slot.startMinutes) / 60) * 80, 50)
+    patientPositions.set(slot.patient.id, {
+      column: colIndex,
+      totalColumns: maxColumns,
+      position,
+      height,
+      duration: slot.endMinutes - slot.startMinutes
     })
   })
 
@@ -131,10 +191,220 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
   })
 
   const hasMultipleColumns = maxColumns > 1
+  const isResizing = Boolean(resizeState)
+  const isDragging = Boolean(dragState)
+
+  useEffect(() => {
+    if (!resizeState) return
+    const handleMove = (event: PointerEvent) => {
+      const deltaY = event.clientY - resizeState.startY
+      const deltaMinutes = Math.round((deltaY / 70) * 60 / 5) * 5
+      const nextDuration = Math.max(
+        resizeState.minDuration,
+        Math.min(resizeState.maxDuration, resizeState.startDuration + deltaMinutes)
+      )
+      setResizeDurations(prev => ({ ...prev, [resizeState.patientId]: nextDuration }))
+    }
+    const handleUp = async () => {
+      const nextDuration = resizeDurations[resizeState.patientId] ?? resizeState.startDuration
+      const infusionDuration = Math.max(1, nextDuration - resizeState.nonInfusionDuration)
+      if (onUpdateInfusionDuration && nextDuration !== resizeState.startDuration) {
+        const ok = await onUpdateInfusionDuration(resizeState.patientId, resizeState.actionId, infusionDuration)
+        if (!ok) {
+          setResizeDurations(prev => {
+            const { [resizeState.patientId]: _, ...rest } = prev
+            return rest
+          })
+        }
+      }
+      setResizeDurations(prev => {
+        const { [resizeState.patientId]: _, ...rest } = prev
+        return rest
+      })
+      setResizeState(null)
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp, { once: true })
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+    }
+  }, [resizeState, resizeDurations, onUpdateInfusionDuration])
+
+  useEffect(() => {
+    if (!dragState) return
+    const handleMove = (event: PointerEvent) => {
+      if (!timelineRef.current) return
+      const rect = timelineRef.current.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const colWidth = rect.width / chairColumns
+      const nextColumn = Math.max(0, Math.min(chairColumns - 1, Math.floor(x / colWidth)))
+      const deltaY = event.clientY - dragState.startY
+      if (Math.abs(deltaY) > 2) dragMovedRef.current = true
+      const deltaMinutes = Math.round((deltaY / 35) * 60 / 5) * 5
+      const nextMinutes = Math.max(
+        dragState.minMinutes,
+        Math.min(dragState.maxMinutes, dragState.startMinutes + deltaMinutes)
+      )
+      setDragStartTimes(prev => ({
+        ...prev,
+        [dragState.patientId]: minutesToTime(nextMinutes)
+      }))
+      setDragColumns(prev => ({
+        ...prev,
+        [dragState.patientId]: nextColumn
+      }))
+    }
+    const handleUp = async () => {
+      const patient = patients.find(p => p.id === dragState.patientId)
+      const nextStartTime = dragStartTimes[dragState.patientId] ?? minutesToTime(dragState.startMinutes)
+      const nextColumn = dragColumns[dragState.patientId] ?? dragState.startColumn
+      if (!patient) {
+        setDragState(null)
+        return
+      }
+      const duration = getPatientDuration(patient)
+      const [h, m] = nextStartTime.split(':').map(Number)
+      let proposedStart = Math.round((h * 60 + m) / 5) * 5
+
+      const isValid = (startMinutes: number) => {
+        const endMinutes = startMinutes + duration
+        return timeSlots.every(slot => {
+          if (slot.patient.id === patient.id) return true
+          if (getPatientColumn(slot.patient) !== nextColumn) return true
+          return endMinutes <= slot.startMinutes - minGapMinutes || startMinutes >= slot.endMinutes + minGapMinutes
+        })
+      }
+
+      const snapUpTo5 = (minutes: number) => Math.ceil(minutes / 5) * 5
+
+      const bumpBelowOverlap = () => {
+        const columnSlots = timeSlots
+          .filter(slot => slot.patient.id !== patient.id && getPatientColumn(slot.patient) === nextColumn)
+          .sort((a, b) => a.startMinutes - b.startMinutes)
+        for (const slot of columnSlots) {
+          const overlap = proposedStart < slot.endMinutes + minGapMinutes
+            && proposedStart + duration > slot.startMinutes - minGapMinutes
+          if (overlap) {
+            proposedStart = snapUpTo5(slot.endMinutes + minGapMinutes)
+          }
+        }
+      }
+
+      bumpBelowOverlap()
+
+      if (proposedStart > dragState.maxMinutes) {
+        setDragStartTimes(prev => {
+          const { [dragState.patientId]: _, ...rest } = prev
+          return rest
+        })
+        setDragColumns(prev => {
+          const { [dragState.patientId]: _, ...rest } = prev
+          return rest
+        })
+        dragMovedRef.current = false
+        setDragState(null)
+        return
+      }
+
+      const findNearestValid = () => {
+        for (let offset = 0; offset <= dragState.maxMinutes - dragState.minMinutes; offset += 5) {
+          const forward = proposedStart + offset
+          if (forward <= dragState.maxMinutes && isValid(forward)) return forward
+          const backward = proposedStart - offset
+          if (backward >= dragState.minMinutes && isValid(backward)) return backward
+        }
+        return null
+      }
+
+      const snappedStart = findNearestValid()
+
+      if (snappedStart === null) {
+        setDragStartTimes(prev => {
+          const { [dragState.patientId]: _, ...rest } = prev
+          return rest
+        })
+        setDragColumns(prev => {
+          const { [dragState.patientId]: _, ...rest } = prev
+          return rest
+        })
+        dragMovedRef.current = false
+        setDragState(null)
+        return
+      }
+
+      const nextStartISO = minutesToTime(snappedStart)
+      let ok = true
+      if (onUpdatePatientStartTime && nextStartISO !== minutesToTime(dragState.startMinutes)) {
+        ok = await onUpdatePatientStartTime(dragState.patientId, nextStartISO)
+      }
+      if (ok) {
+        setColumnAssignments(prev => ({ ...prev, [dragState.patientId]: nextColumn }))
+      }
+      if (!ok) {
+        setDragStartTimes(prev => {
+          const { [dragState.patientId]: _, ...rest } = prev
+          return rest
+        })
+        setDragColumns(prev => {
+          const { [dragState.patientId]: _, ...rest } = prev
+          return rest
+        })
+      }
+      setDragStartTimes(prev => {
+        const { [dragState.patientId]: _, ...rest } = prev
+        return rest
+      })
+      setDragColumns(prev => {
+        const { [dragState.patientId]: _, ...rest } = prev
+        return rest
+      })
+      dragMovedRef.current = false
+      setDragState(null)
+    }
+    const handleCancel = () => {
+      setDragStartTimes(prev => {
+        const { [dragState.patientId]: _, ...rest } = prev
+        return rest
+      })
+      setDragColumns(prev => {
+        const { [dragState.patientId]: _, ...rest } = prev
+        return rest
+      })
+      dragMovedRef.current = false
+      setDragState(null)
+    }
+    window.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', handleUp, { once: true })
+    window.addEventListener('pointercancel', handleCancel)
+    window.addEventListener('blur', handleCancel)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', handleUp)
+      window.removeEventListener('pointercancel', handleCancel)
+      window.removeEventListener('blur', handleCancel)
+    }
+  }, [dragState, dragStartTimes, dragColumns, onUpdatePatientStartTime, chairColumns, timeSlots, minGapMinutes, patients])
 
   const containerClass = showHeader 
     ? "bg-white rounded-xl p-6 shadow-sm border border-slate-200 h-full flex flex-col"
     : "h-full flex flex-col p-6"
+
+  if (isEmpty) {
+    return (
+      <div className="bg-white rounded-xl p-6 shadow-sm border border-slate-200 h-full">
+        <h2 className="text-xl font-bold mb-6 text-slate-900 border-b pb-3">Dagplanning</h2>
+        <div className="text-center py-16">
+          <div className="text-4xl mb-2 text-slate-300">
+            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div className="text-lg text-slate-500">Geen patiënten ingepland</div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={containerClass}>
@@ -193,13 +463,26 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
           </div>
 
           {/* Timeline with columns - with horizontal scroll for many columns */}
-          <div className="relative border-l-3 border-slate-300 overflow-x-auto" style={{ minWidth: maxColumns > 5 ? `${maxColumns * 90}px` : 'auto', isolation: 'isolate', overflowY: 'visible', position: 'relative' }}>
+          <div
+            ref={timelineRef}
+            className="relative border-l-3 border-slate-300 overflow-x-auto"
+            style={{ minWidth: maxColumns > 5 ? `${maxColumns * 90}px` : 'auto', isolation: 'isolate', overflowY: 'visible', position: 'relative' }}
+          >
             {hours.map((hour, index) => (
               <div
                 key={hour}
                 className="h-[70px] border-b border-slate-200"
               />
             ))}
+            <div className="absolute inset-0 flex pointer-events-none">
+              {Array.from({ length: chairColumns }).map((_, i) => (
+                <div key={i} className="flex-1 border-r border-slate-100 relative">
+                  <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[10px] text-slate-400">
+                    Stoel {i + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
 
             {/* Patient blocks */}
             {patients.map((patient) => {
@@ -217,9 +500,6 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
               
               // Get staff assignments for key actions
               const setupAction = patient.actions.find(a => a.type === 'setup')
-              const protocolCheckAction = patient.actions.find(a => a.type === 'protocol_check')
-              const removalAction = patient.actions.find(a => a.type === 'removal')
-              const checkActions = patient.actions.filter(a => a.type === 'check')
               
               // Adjust for compact display based on number of columns
               const isCompact = pos.totalColumns >= 3
@@ -229,8 +509,10 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
               return (
                 <div
                   key={patient.id}
-                  onClick={() => setSelectedPatient(patient)}
-                  className={`absolute ${color} text-white rounded-md shadow-md hover:shadow-xl transition-all duration-200 cursor-pointer group border-2 border-white patient-card`}
+                  onDoubleClick={() => {
+                    if (!isResizing && !dragMovedRef.current && !dragState) setSelectedPatient(patient)
+                  }}
+                  className={`absolute ${color} text-white rounded-md shadow-md hover:shadow-xl transition-all duration-200 cursor-pointer group border-2 border-white patient-card ${dragState?.patientId === patient.id ? 'opacity-70 ring-2 ring-white' : ''}`}
                   style={{ 
                     top: `${pos.position}px`, 
                     height: `${pos.height}px`,
@@ -246,7 +528,7 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.transform = 'scale(1.01)'
-                    e.currentTarget.style.zIndex = '30'
+                    e.currentTarget.style.zIndex = '999'
                     if (isVeryCompact || isExtremelyCompact) {
                       setHoveredPatient({ patient, element: e.currentTarget })
                     }
@@ -257,6 +539,27 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                     setHoveredPatient(null)
                   }}
                   title={`${medicationName} - Klik voor details`}
+                  onPointerDown={(event) => {
+                    if (isResizing || !onUpdatePatientStartTime) return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    dragMovedRef.current = false
+                    const [startH, startM] = getPatientStartTime(patient).split(':').map(Number)
+                    const startMinutes = startH * 60 + startM
+                    const duration = getPatientDuration(patient)
+                    const minMinutes = startHour * 60
+                    const maxMinutes = Math.max((endHour * 60) - duration, minMinutes)
+                    setDragState({
+                      patientId: patient.id,
+                      startY: event.clientY,
+                      startMinutes,
+                      startColumn: getPatientColumn(patient),
+                      minMinutes,
+                      maxMinutes
+                    })
+                    setDragStartTimes(prev => ({ ...prev, [patient.id]: getPatientStartTime(patient) }))
+                    setDragColumns(prev => ({ ...prev, [patient.id]: getPatientColumn(patient) }))
+                  }}
                 >
                   <div className={`font-bold leading-tight truncate ${
                     isExtremelyCompact ? 'text-xs' : isVeryCompact ? 'text-sm' : 'text-base'
@@ -266,7 +569,18 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                   <div className={`mt-0.5 font-medium ${
                     isExtremelyCompact ? 'text-[10px]' : isVeryCompact ? 'text-xs' : 'text-sm'
                   }`}>
-                    {isExtremelyCompact ? patient.startTime.slice(0, 5) : patient.startTime}
+                    {(() => {
+                      const [h, m] = getPatientStartTime(patient).split(':').map(Number)
+                      const startMinutes = h * 60 + m
+                      const endMinutes = startMinutes + pos.duration
+                      const endHours = Math.floor(endMinutes / 60)
+                      const endMins = endMinutes % 60
+                      const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`
+                      if (isExtremelyCompact) {
+                        return `${getPatientStartTime(patient).slice(0, 5)}-${endTime}`
+                      }
+                      return `${getPatientStartTime(patient)} - ${endTime}`
+                    })()}
                   </div>
                   {pos.height > 50 && !isExtremelyCompact && (
                     <div className={`mt-0.5 ${
@@ -276,42 +590,38 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                     </div>
                   )}
                   
-                  {/* Staff assignments - only show if there's enough space */}
-                  {pos.height > 70 && !isExtremelyCompact && (
-                    <div className={`mt-2 space-y-1 ${
-                      isVeryCompact ? 'text-[10px]' : 'text-xs'
-                    }`}>
-                      {setupAction?.staff && setupAction.staff !== 'Systeem' && setupAction.staff !== 'Geen' && (
-                        <div className="truncate flex items-center gap-1">
-                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Prikt:</span>
-                          <span className="font-semibold truncate">{setupAction.staff}</span>
-                        </div>
-                      )}
-                      {protocolCheckAction?.staff && protocolCheckAction.staff !== 'Systeem' && protocolCheckAction.staff !== 'Geen' && (
-                        <div className="truncate flex items-center gap-1">
-                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Prot:</span>
-                          <span className="font-semibold truncate">{protocolCheckAction.staff}</span>
-                        </div>
-                      )}
-                      {checkActions.length > 0 && checkActions[0]?.staff && checkActions[0].staff !== 'Systeem' && checkActions[0].staff !== 'Geen' && (
-                        <div className="truncate flex items-center gap-1">
-                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Check:</span>
-                          <span className="font-semibold truncate">
-                            {new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size > 1 
-                              ? `${new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size} VPK`
-                              : checkActions[0].staff}
-                          </span>
-                        </div>
-                      )}
-                      {removalAction?.staff && removalAction.staff !== 'Systeem' && removalAction.staff !== 'Geen' && (
-                        <div className="truncate flex items-center gap-1">
-                          <span className="opacity-75 text-[10px] uppercase tracking-wider min-w-[35px]">Af:</span>
-                          <span className="font-semibold truncate">{removalAction.staff}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  
+                  {(() => {
+                    const infusionAction = patient.actions.find(a => a.type === 'infusion')
+                    if (!infusionAction || !onUpdateInfusionDuration) return null
+                    const nonInfusionDuration = patient.actions
+                      .filter(a => a.type !== 'infusion')
+                      .reduce((sum, action) => sum + action.duration, 0)
+                    const [startH, startM] = patient.startTime.split(':').map(Number)
+                    const startMinutes = startH * 60 + startM
+                    const maxDuration = Math.max((endHour * 60) - startMinutes, nonInfusionDuration + 1)
+                    const minDuration = nonInfusionDuration + 1
+
+                    return (
+                      <div
+                        onPointerDown={(event) => {
+                          event.stopPropagation()
+                          event.preventDefault()
+                          setResizeState({
+                            patientId: patient.id,
+                            actionId: infusionAction.id,
+                            startY: event.clientY,
+                            startDuration: pos.duration,
+                            minDuration,
+                            maxDuration,
+                            nonInfusionDuration
+                          })
+                          setResizeDurations(prev => ({ ...prev, [patient.id]: pos.duration }))
+                        }}
+                        className="absolute bottom-0 left-1 right-1 h-2 cursor-ns-resize bg-white/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Sleep om infuusduur aan te passen"
+                      />
+                    )
+                  })()}
                 </div>
               )
             })}
@@ -328,9 +638,6 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
         const medication = getMedicationById(patient.medicationType)
         const medicationName = medication?.displayName || patient.medicationType
         const setupAction = patient.actions.find(a => a.type === 'setup')
-        const protocolCheckAction = patient.actions.find(a => a.type === 'protocol_check')
-        const removalAction = patient.actions.find(a => a.type === 'removal')
-        const checkActions = patient.actions.filter(a => a.type === 'check')
         
         const rect = element.getBoundingClientRect()
         const tooltipStyle: React.CSSProperties = {
@@ -379,23 +686,7 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
           >
             <div className="font-bold">{medicationName}</div>
             <div className="opacity-90 text-xs">{patient.name}</div>
-            <div className="opacity-90 text-xs">{patient.startTime} • {pos.duration} min</div>
-            {setupAction?.staff && setupAction.staff !== 'Systeem' && setupAction.staff !== 'Geen' && (
-              <div className="opacity-90 text-xs mt-1">Prikt: {setupAction.staff}</div>
-            )}
-            {protocolCheckAction?.staff && protocolCheckAction.staff !== 'Systeem' && protocolCheckAction.staff !== 'Geen' && (
-              <div className="opacity-90 text-xs">Protocol: {protocolCheckAction.staff}</div>
-            )}
-            {checkActions.length > 0 && checkActions[0]?.staff && checkActions[0].staff !== 'Systeem' && checkActions[0].staff !== 'Geen' && (
-              <div className="opacity-90 text-xs">
-                Checks: {new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size > 1 
-                  ? `${new Set(checkActions.map(c => c.staff).filter(s => s && s !== 'Systeem' && s !== 'Geen')).size} VPK`
-                  : checkActions[0].staff}
-              </div>
-            )}
-            {removalAction?.staff && removalAction.staff !== 'Systeem' && removalAction.staff !== 'Geen' && (
-              <div className="opacity-90 text-xs">Afkoppelt: {removalAction.staff}</div>
-            )}
+            <div className="opacity-90 text-xs">{getPatientStartTime(patient)} • {pos.duration} min</div>
           </div>
         )
       })()}
@@ -476,6 +767,21 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  {onDuplicatePatient && (
+                    <button
+                      onClick={() => {
+                        onDuplicatePatient(selectedPatient)
+                        setSelectedPatient(null)
+                      }}
+                      className="text-white hover:text-blue-100 hover:bg-blue-700 rounded-lg p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-600"
+                      title="Behandeling dupliceren"
+                      aria-label="Behandeling dupliceren"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16h8M8 12h8m-7 8h6a2 2 0 002-2V8a2 2 0 00-2-2H9l-4 4v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  )}
                   {onDeletePatient && (
                     <button
                       onClick={() => {

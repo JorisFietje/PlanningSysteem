@@ -38,3 +38,16 @@ export async function deleteAction(actionId: string): Promise<boolean> {
   }
 }
 
+export async function updateActionDuration(actionId: string, duration: number): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/actions/${actionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ duration })
+    })
+    return response.ok
+  } catch (error) {
+    console.error('Failed to update action duration:', error)
+    return false
+  }
+}

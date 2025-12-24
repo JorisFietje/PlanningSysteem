@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWeekplanningContext } from '../layout'
 import CapOverview from '@/components/planning/CapOverview'
 import DayStaffModal from '@/components/planning/DayStaffModal'
-import { DayOfWeek, formatDateToISO, getMondayOfWeek } from '@/types'
+import { DayOfWeek, StaffMember, formatDateToISO, getMondayOfWeek } from '@/types'
+import { RampScheduleMap, loadRampSchedules } from '@/utils/staff/rampSchedules'
+import { buildScheduleFromWorkDays } from '@/utils/staff/workDays'
 
 const emptySchedule: Record<DayOfWeek, string[]> = {
   monday: [],
@@ -24,14 +26,30 @@ const emptyCoordinators: Record<DayOfWeek, string | null> = {
 
 const days: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
 
+const getMondayForDate = (date: Date): Date => {
+  const dayIndex = date.getDay()
+  const diff = dayIndex === 0 ? -6 : 1 - dayIndex
+  const monday = new Date(date)
+  monday.setDate(date.getDate() + diff)
+  return monday
+}
+
 const getFirstMondayOfMonth = (monthValue: string): Date => {
   const [year, month] = monthValue.split('-').map(Number)
   const firstDay = new Date(year, month - 1, 1)
-  const dayIndex = firstDay.getDay()
-  const diff = dayIndex === 0 ? -6 : 1 - dayIndex
-  const monday = new Date(firstDay)
-  monday.setDate(firstDay.getDate() + diff)
-  return monday
+  return getMondayForDate(firstDay)
+}
+
+const getWeekStartsForMonth = (monthValue: string): Date[] => {
+  const [year, month] = monthValue.split('-').map(Number)
+  const firstMonday = getFirstMondayOfMonth(monthValue)
+  const lastDayOfMonth = new Date(year, month, 0)
+  const lastWeekMonday = getMondayForDate(lastDayOfMonth)
+  const starts: Date[] = []
+  for (let current = new Date(firstMonday); current <= lastWeekMonday; current = addDays(current, 7)) {
+    starts.push(new Date(current))
+  }
+  return starts
 }
 
 const getWeekDates = (weekStart: Date): string[] => {
@@ -64,6 +82,7 @@ export default function CapOverzichtPage() {
     }>
   >([])
   const [plannedCounts, setPlannedCounts] = useState<Record<string, number>>({})
+  const [rampSchedules, setRampSchedules] = useState<RampScheduleMap>({})
   const pendingDayCapacitySaves = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const [staffModal, setStaffModal] = useState<{
     isOpen: boolean
@@ -72,10 +91,8 @@ export default function CapOverzichtPage() {
     day: DayOfWeek
   }>({ isOpen: false, weekStart: '', date: '', day: 'monday' })
 
-  const weekStarts = useMemo(() => {
-    const firstMonday = getFirstMondayOfMonth(selectedMonth)
-    return [0, 7, 14, 21].map(offset => addDays(firstMonday, offset))
-  }, [selectedMonth])
+  const weekStarts = useMemo(() => getWeekStartsForMonth(selectedMonth), [selectedMonth])
+  const defaultSchedule = useMemo(() => buildScheduleFromWorkDays(staffMembers as StaffMember[]), [staffMembers])
 
   useEffect(() => {
     const loadWeeks = async () => {
@@ -90,7 +107,7 @@ export default function CapOverzichtPage() {
             return {
               weekStart,
               dates,
-              staffSchedule: { ...emptySchedule },
+              staffSchedule: { ...defaultSchedule },
               coordinatorByDay: { ...emptyCoordinators },
               dayCapacities: {},
               exists: false
@@ -102,13 +119,13 @@ export default function CapOverzichtPage() {
             return {
               weekStart,
               dates,
-              staffSchedule: { ...emptySchedule },
+              staffSchedule: { ...defaultSchedule },
               coordinatorByDay: { ...emptyCoordinators },
               dayCapacities: {},
               exists: false
             }
           }
-          const schedule: Record<DayOfWeek, string[]> = { ...emptySchedule }
+          let schedule: Record<DayOfWeek, string[]> = { ...defaultSchedule }
           const coordinators: Record<DayOfWeek, string | null> = { ...emptyCoordinators }
 
           data.staffSchedules?.forEach((s: { dayOfWeek: DayOfWeek; staffNames: string }) => {
@@ -152,7 +169,7 @@ export default function CapOverzichtPage() {
     }
 
     loadWeeks()
-  }, [weekStarts])
+  }, [weekStarts, defaultSchedule])
 
   const fetchPlannedCounts = useCallback(async (dates: string[]) => {
     if (dates.length === 0) return
@@ -183,6 +200,10 @@ export default function CapOverzichtPage() {
     const dates = weeks.flatMap(week => week.dates)
     fetchPlannedCounts(dates)
   }, [weeks, fetchPlannedCounts])
+
+  useEffect(() => {
+    setRampSchedules(loadRampSchedules())
+  }, [selectedMonth])
 
   useEffect(() => {
     const handleFocus = () => {
@@ -332,6 +353,7 @@ export default function CapOverzichtPage() {
         weeks={weeks}
         staffMembers={staffMembers}
         plannedCounts={plannedCounts}
+        rampSchedules={rampSchedules}
         monthValue={selectedMonth}
         onMonthChange={setSelectedMonth}
         onEditDayStaff={handleOpenStaffModal}

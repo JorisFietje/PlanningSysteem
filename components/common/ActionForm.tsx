@@ -11,13 +11,14 @@ interface ActionFormProps {
 export default function ActionForm({ patients, onSubmit }: ActionFormProps) {
   const [patientId, setPatientId] = useState('')
   const [name, setName] = useState('')
-  const [duration, setDuration] = useState(15)
+  const [duration, setDuration] = useState<number | ''>(15)
   const [staff, setStaff] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (patientId && name && duration && staff) {
-      onSubmit(patientId, name, duration, staff)
+    const durationValue = typeof duration === 'number' ? duration : parseInt(duration, 10)
+    if (patientId && name && staff && Number.isFinite(durationValue) && durationValue > 0) {
+      onSubmit(patientId, name, durationValue, staff)
       setPatientId('')
       setName('')
       setDuration(15)
@@ -71,7 +72,10 @@ export default function ActionForm({ patients, onSubmit }: ActionFormProps) {
               type="number"
               id="actionDuration"
               value={duration}
-              onChange={(e) => setDuration(parseInt(e.target.value))}
+              onChange={(e) => {
+                const value = e.target.value
+                setDuration(value === '' ? '' : parseInt(value, 10))
+              }}
               required
               min="5"
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all"
@@ -102,4 +106,3 @@ export default function ActionForm({ patients, onSubmit }: ActionFormProps) {
     </div>
   )
 }
-

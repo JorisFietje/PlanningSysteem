@@ -5,8 +5,8 @@ import { useDagplanningContext } from '../layout'
 import { Patient, getDayOfWeekFromDate, DEPARTMENT_CONFIG, getMondayOfWeek, formatDateToISO } from '@/types'
 import { validateNurseWorkDay } from '@/features/patients/patientValidation'
 import { addPatientWithActions } from '@/features/patients/patientAssignment'
-import { deletePatient as deletePatientService, updatePatient } from '@/features/patients/patientService'
-import { deleteAction } from '@/features/patients/actionService'
+import { deletePatient as deletePatientService, updatePatient, updatePatientStartTime } from '@/features/patients/patientService'
+import { deleteAction, updateActionDuration } from '@/features/patients/actionService'
 import { calculateWorkloadByTimeSlot } from '@/utils/planning/workload'
 import DatePicker from '@/components/planning/DatePicker'
 import ScheduleBoard from '@/components/patients/ScheduleBoard'
@@ -295,6 +295,86 @@ export default function PlanningPage() {
     })
   }
 
+  const handleUpdateInfusionDuration = async (patientId: string, actionId: string, duration: number) => {
+    const ok = await updateActionDuration(actionId, duration)
+    if (!ok) {
+      showNotification('Fout bij aanpassen infuusduur', 'warning')
+      return false
+    }
+    setPatients(prev =>
+      prev.map(patient => {
+        if (patient.id !== patientId) return patient
+        return {
+          ...patient,
+          actions: patient.actions.map(action =>
+            action.id === actionId ? { ...action, duration } : action
+          )
+        }
+      })
+    )
+    showNotification('Infuusduur aangepast', 'success')
+    return true
+  }
+
+  const handleUpdatePatientStartTime = async (patientId: string, startTime: string) => {
+    const [hours, minutes] = startTime.split(':').map(Number)
+    const roundedMinutes = Math.round(minutes / 5) * 5
+    const carryHours = Math.floor(roundedMinutes / 60)
+    const normalizedMinutes = roundedMinutes % 60
+    const normalizedHours = hours + carryHours
+    const normalizedTime = `${String(normalizedHours).padStart(2, '0')}:${String(normalizedMinutes).padStart(2, '0')}`
+    setPatients(prev =>
+      prev.map(patient => (patient.id === patientId ? { ...patient, startTime: normalizedTime } : patient))
+    )
+    const ok = await updatePatientStartTime(patientId, normalizedTime)
+    if (!ok) {
+      setPatients(prev =>
+        prev.map(patient => (patient.id === patientId ? { ...patient, startTime } : patient))
+      )
+      showNotification('Fout bij aanpassen starttijd', 'warning')
+      return false
+    }
+    showNotification('Starttijd aangepast', 'success')
+    return true
+  }
+
+  const handleDuplicatePatient = async (patient: Patient) => {
+    const infusionAction = patient.actions.find(a => a.type === 'infusion')
+    const customInfusionMinutes = infusionAction ? infusionAction.duration : undefined
+    const newName = `${patient.name} (kopie)`
+    try {
+      const day = getDayOfWeekFromDate(selectedDate)
+      const assignedNames = staffSchedule[day]
+      const filteredStaff = (assignedNames && assignedNames.length > 0)
+        ? staffMembers.filter(s => assignedNames.includes(s.name))
+        : staffMembers
+
+      const result = await addPatientWithActions(
+        newName,
+        patient.startTime,
+        selectedDate,
+        patient.medicationType,
+        patient.treatmentNumber,
+        filteredStaff,
+        patients,
+        undefined,
+        showNotification,
+        true,
+        coordinatorByDay[day] || undefined,
+        customInfusionMinutes
+      )
+
+      if (!result.success) return
+
+      await fetchPatients()
+      await syncWeekPlanTreatment(patient.medicationType, patient.treatmentNumber, 1)
+      showNotification('Behandeling gekopieerd', 'success')
+    } catch (error) {
+      console.error('Failed to duplicate patient:', error)
+      showNotification('Fout bij dupliceren behandeling', 'warning')
+    }
+  }
+
   const day = getDayOfWeekFromDate(selectedDate)
   const assignedNames = staffSchedule[day]
 
@@ -337,6 +417,9 @@ export default function PlanningPage() {
             patients={patients}
             onAddPatient={undefined}
             onDeletePatient={handleDeletePatient}
+            onUpdateInfusionDuration={handleUpdateInfusionDuration}
+            onUpdatePatientStartTime={handleUpdatePatientStartTime}
+            onDuplicatePatient={handleDuplicatePatient}
             showHeader={false}
           />
         </div>
@@ -377,4 +460,3 @@ export default function PlanningPage() {
     </>
   )
 }
-

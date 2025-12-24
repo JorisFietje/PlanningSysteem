@@ -17,6 +17,7 @@ export interface MedicationActionTemplate {
 
 export interface MedicationVariant {
   treatmentNumber: number // 1=eerste keer, 2=2-3e keer, 3=4-6e keer, 4=7e+ keer
+  label?: string
   timing: MedicationTiming
   actions?: MedicationActionTemplate[]
 }

@@ -56,8 +56,7 @@ export async function PUT(
         data: {
           name,
           maxPatients: parseInt(maxPatients),
-          maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null,
-          workDays: null
+          maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null
         }
       })
     } else {
@@ -66,8 +65,7 @@ export async function PUT(
         where: { name: decodedName },
         data: {
           maxPatients: parseInt(maxPatients),
-          maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null,
-          workDays: null
+          maxWorkTime: maxWorkTime ? parseInt(maxWorkTime) : null
         }
       })
     }
@@ -119,4 +117,3 @@ export async function DELETE(
     )
   }
 }
-

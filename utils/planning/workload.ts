@@ -22,7 +22,9 @@ export function calculateWorkloadByTimeSlot(patients: Patient[]): WorkloadSlot[]
   patients.forEach(patient => {
     const [startHours, startMinutes] = patient.startTime.split(':').map(Number)
     const patientStartMinutes = startHours * 60 + startMinutes
-    const totalDuration = calculateTotalTreatmentTime(patient.medicationType, patient.treatmentNumber)
+    const totalDuration = patient.actions && patient.actions.length > 0
+      ? patient.actions.reduce((sum, action) => sum + action.duration, 0)
+      : calculateTotalTreatmentTime(patient.medicationType, patient.treatmentNumber)
     const patientEndMinutes = patientStartMinutes + totalDuration
 
     slots.forEach(slot => {
@@ -193,4 +195,3 @@ export function generateOptimizationSuggestions(
 
   return suggestions.slice(0, 6) // Max 6 suggesties tonen
 }
-

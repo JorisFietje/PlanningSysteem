@@ -1,7 +1,9 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { DayOfWeek, StaffMember, getDayCoordinators, getDaycoPatientsCount } from '@/types'
+import { DayOfWeek, StaffMember, formatDateToISO, getDayCoordinators, getDaycoPatientsCount } from '@/types'
+import { buildScheduleFromWorkDays } from '@/utils/staff/workDays'
+import { RampScheduleMap, buildRampOccurrenceCounts, getRampValuesForOccurrence } from '@/utils/staff/rampSchedules'
 
 interface CapOverviewWeek {
   weekStart: string
@@ -15,6 +17,7 @@ interface CapOverviewProps {
   weeks: CapOverviewWeek[]
   staffMembers: StaffMember[]
   plannedCounts: Record<string, number>
+  rampSchedules?: RampScheduleMap
   monthValue?: string
   onMonthChange?: (value: string) => void
   onEditDayStaff: (weekStart: string, date: string, day: DayOfWeek) => void
@@ -42,17 +45,17 @@ const getWeekNumber = (date: Date): number => {
   return Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
 }
 
-const parseNumericInput = (value: string): number | null => {
-  if (value.trim() === '') return null
-  const parsed = parseInt(value, 10)
-  if (Number.isNaN(parsed)) return null
-  return parsed
-}
+  const parseNumericInput = (value: string): number | null => {
+    if (value.trim() === '') return null
+    const parsed = parseInt(value, 10)
+    if (Number.isNaN(parsed)) return null
+    return parsed
+  }
 
-const resizeTextarea = (element: HTMLTextAreaElement, resetOnBlur = false) => {
-  if (resetOnBlur) {
-    element.style.height = '32px'
-    return
+  const resizeTextarea = (element: HTMLTextAreaElement, resetOnBlur = false) => {
+    if (resetOnBlur) {
+      element.style.height = '32px'
+      return
   }
   element.style.height = '0px'
   const nextHeight = Math.max(element.scrollHeight, 32)
@@ -63,6 +66,7 @@ export default function CapOverview({
   weeks,
   staffMembers,
   plannedCounts,
+  rampSchedules = {},
   monthValue,
   onMonthChange,
   onEditDayStaff,
@@ -70,7 +74,28 @@ export default function CapOverview({
 }: CapOverviewProps) {
   const [collapsedWeeks, setCollapsedWeeks] = useState<Record<string, boolean>>({})
   const initializedDefaultsRef = useRef<Set<string>>(new Set())
+  const [plannedDrafts, setPlannedDrafts] = useState<Record<string, string>>({})
   const dayCoordinators = getDayCoordinators()
+  const defaultSchedule = useMemo(() => buildScheduleFromWorkDays(staffMembers), [staffMembers])
+
+  const scheduleByWeekStart = useMemo(() => {
+    const map: Record<string, Record<DayOfWeek, string[]>> = {}
+    weeks.forEach(week => {
+      map[week.weekStart] = week.staffSchedule
+    })
+    return map
+  }, [weeks])
+
+  const maxDateInWeeks = useMemo(() => {
+    const allDates = weeks.flatMap(week => week.dates).filter(Boolean)
+    if (allDates.length === 0) return formatDateToISO(new Date())
+    return allDates.reduce((max, date) => (date > max ? date : max), allDates[0])
+  }, [weeks])
+
+  const rampOccurrencesByDate = useMemo(() => {
+    if (!rampSchedules || Object.keys(rampSchedules).length === 0) return {}
+    return buildRampOccurrenceCounts(rampSchedules, scheduleByWeekStart, defaultSchedule, maxDateInWeeks)
+  }, [rampSchedules, scheduleByWeekStart, defaultSchedule, maxDateInWeeks])
 
   const today = useMemo(() => {
     const now = new Date()
@@ -124,6 +149,11 @@ export default function CapOverview({
     return `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth() + 1).toString().padStart(2, '0')}/${dateObj.getFullYear()}`
   }
 
+  const isDateInMonth = (date: string, month: string | undefined) => {
+    if (!month) return true
+    return date.startsWith(`${month}-`)
+  }
+
   const getPlannedStatus = (planned: number | null, base: number) => {
     if (planned === null) return 'empty'
     if (planned > base) return 'over'
@@ -131,9 +161,30 @@ export default function CapOverview({
     return 'under'
   }
 
+  const buildAutoNotes = (note: string, autoLines: string[]) => {
+    if (autoLines.length === 0) return note
+    const noteLines = note.split('\n').filter(line => line.trim() !== '')
+    const filtered = noteLines.filter(line => {
+      return !autoLines.some(autoLine => {
+        const name = autoLine.split(' werkt van ')[0]
+        const regex = new RegExp(`^${name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')} werkt van .* tot .*\\.?$`, 'i')
+        return regex.test(line.trim())
+      })
+    })
+    return [...filtered, ...autoLines].join('\n').trim()
+  }
+
+  const getPlannedRatioStatus = (planned: number | null, base: number) => {
+    if (planned === null || base <= 0) return 'empty'
+    const ratio = planned / base
+    if (ratio >= 1) return 'over'
+    if (ratio >= 0.8) return 'near'
+    return 'under'
+  }
+
   const plannedColor = (status: string) => {
     if (status === 'over') return 'bg-red-100 text-red-900 border-transparent'
-    if (status === 'equal') return 'bg-yellow-100 text-yellow-900 border-transparent'
+    if (status === 'near') return 'bg-yellow-100 text-yellow-900 border-transparent'
     if (status === 'under') return 'bg-green-100 text-green-900 border-transparent'
     return 'bg-white text-slate-700 border-transparent'
   }
@@ -168,7 +219,7 @@ export default function CapOverview({
               <div className="px-2 whitespace-nowrap">Datum</div>
               <div className="px-2 text-center whitespace-nowrap">Weekdag</div>
               <div className="px-2 text-center whitespace-nowrap">Aantal patiënten</div>
-              <div className="px-2 text-center leading-tight">Max aantal<br />patiënten</div>
+              <div className="px-2 text-center leading-tight">Afgesproken<br />patiënten</div>
               <div className="px-2 text-center whitespace-nowrap">Trend</div>
               <div className="px-2 text-center leading-tight">Max<br />capaciteit</div>
               <div className="px-2 text-center whitespace-nowrap">Overschrijding</div>
@@ -183,6 +234,12 @@ export default function CapOverview({
           const weekStartDate = new Date(week.weekStart + 'T00:00:00')
           const weekNumber = getWeekNumber(weekStartDate)
           const isCollapsed = collapsedWeeks[week.weekStart]
+          const visibleDays = days.filter((_, index) => {
+            const date = week.dates[index]
+            return Boolean(date) && isDateInMonth(date, monthValue)
+          })
+
+          if (visibleDays.length === 0) return null
 
           return (
             <div key={week.weekStart}>
@@ -199,18 +256,37 @@ export default function CapOverview({
               </button>
               {isCollapsed ? null : days.map((day, index) => {
                 const date = week.dates[index]
+                if (!date || !isDateInMonth(date, monthValue)) return null
                 const staffForDay = week.staffSchedule[day]
                 const availableStaff = staffMembers.filter(s => staffForDay.includes(s.name))
                 const coordinator = week.coordinatorByDay[day] || null
                 const regularStaff = coordinator ? availableStaff.filter(s => s.name !== coordinator) : availableStaff
-                const regularCapacity = regularStaff.reduce((sum, s) => sum + s.maxPatients, 0)
+                const regularCapacity = regularStaff.reduce((sum, s) => {
+                  const occurrence = rampOccurrencesByDate[date]?.[s.name]
+                  const ramp = rampSchedules[s.name]
+                  const rampValues = occurrence && ramp ? getRampValuesForOccurrence(ramp, occurrence) : null
+                  const effectiveMax = rampValues?.patients ?? s.maxPatients
+                  return sum + effectiveMax
+                }, 0)
                 const maxCapacity = regularCapacity + (coordinator ? getDaycoPatientsCount() : 0)
                 const capacity = week.dayCapacities[date] || {}
                 const agreedMax = capacity.agreedMaxPatients ?? null
-                const planned = plannedCounts[date] ?? capacity.plannedPatients ?? null
-                const overschrijdingBase = maxCapacity
+                const planned = capacity.plannedPatients ?? plannedCounts[date] ?? null
+                const plannedInputValue = plannedDrafts[date] ?? (planned ?? '')
+                const overschrijdingBase = agreedMax ?? maxCapacity
                 const overschrijding = planned !== null ? Math.max(0, planned - overschrijdingBase) : null
                 const status = getPlannedStatus(planned, overschrijdingBase)
+                const plannedStatus = getPlannedRatioStatus(planned, overschrijdingBase)
+                const autoLines = regularStaff
+                  .map(s => {
+                    const occurrence = rampOccurrencesByDate[date]?.[s.name]
+                    const ramp = rampSchedules[s.name]
+                    const rampValues = occurrence && ramp ? getRampValuesForOccurrence(ramp, occurrence) : null
+                    if (!rampValues?.startTime || !rampValues?.endTime) return null
+                    return `${s.name} werkt van ${rampValues.startTime} tot ${rampValues.endTime}.`
+                  })
+                  .filter((line): line is string => Boolean(line))
+                const noteValue = buildAutoNotes(capacity.note ?? '', autoLines)
 
                 return (
                   <div
@@ -220,16 +296,38 @@ export default function CapOverview({
                     <div className="flex items-center text-slate-900 font-semibold text-[12px] px-2 h-8">{getDayLabel(date)}</div>
                     <div className="flex items-center justify-center text-slate-600 text-[12px] px-2 h-8">{dayLabelShort[day]}</div>
                     <div className="flex items-center justify-center px-1 h-8">
-                      <div className={`w-full h-7 flex items-center justify-center border text-[12px] font-medium ${plannedColor(status)}`}>
-                        {planned ?? '—'}
-                      </div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={plannedInputValue}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setPlannedDrafts(prev => ({ ...prev, [date]: value }))
+                          if (value === '') {
+                            onUpdateDayCapacity(week.weekStart, date, { plannedPatients: null })
+                            return
+                          }
+                          const parsed = parseNumericInput(value)
+                          if (parsed !== null) {
+                            onUpdateDayCapacity(week.weekStart, date, { plannedPatients: parsed })
+                          }
+                        }}
+                        onBlur={() => {
+                          setPlannedDrafts(prev => {
+                            const { [date]: _, ...rest } = prev
+                            return rest
+                          })
+                        }}
+                        className={`w-full h-7 px-2 py-0 border text-[12px] font-medium text-center focus:bg-white focus:border-slate-300 ${plannedColor(plannedStatus)}`}
+                        placeholder="—"
+                      />
                     </div>
                     <div className="flex items-center justify-center px-1 h-8">
                       <input
                         type="text"
                         inputMode="numeric"
                         min={0}
-                        value={agreedMax ?? maxCapacity}
+                        value={agreedMax ?? ''}
                         onChange={(e) => onUpdateDayCapacity(week.weekStart, date, { agreedMaxPatients: parseNumericInput(e.target.value) })}
                         className="w-full h-7 px-2 py-0 border border-transparent bg-slate-50/70 text-[12px] text-center focus:bg-white focus:border-slate-300"
                         placeholder={`${maxCapacity}`}
@@ -255,8 +353,11 @@ export default function CapOverview({
                     <div className="flex items-center px-1 h-8">
                       <textarea
                         rows={1}
-                        value={capacity.note ?? ''}
-                        onChange={(e) => onUpdateDayCapacity(week.weekStart, date, { note: e.target.value })}
+                        value={noteValue}
+                        onChange={(e) => {
+                          const nextValue = buildAutoNotes(e.target.value, autoLines)
+                          onUpdateDayCapacity(week.weekStart, date, { note: nextValue })
+                        }}
                         onInput={(e) => resizeTextarea(e.currentTarget)}
                         onFocus={(e) => resizeTextarea(e.currentTarget)}
                         onBlur={(e) => resizeTextarea(e.currentTarget, true)}
