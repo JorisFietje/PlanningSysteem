@@ -3,10 +3,21 @@ import { getMedicationById, getMedicationVariant, Medication, MedicationVariant 
 export interface GeneratedAction {
   name: string
   duration: number
-  type: 'setup' | 'infusion' | 'check' | 'removal' | 'observation' | 'flush' | 'protocol_check' | 'pc_switch' | 'custom'
+  type: 'setup' | 'infusion' | 'check' | 'removal' | 'observation' | 'flush' | 'protocol_check' | 'pc_switch' | 'custom' | 'custom_nurse'
   actualDuration?: number
   checkOffset?: number // For checks and PC switches: minutes from START OF INFUSION (not patient start)
   description?: string
+}
+
+const isNurseType = (type?: string) => {
+  return (
+    type === 'setup' ||
+    type === 'protocol_check' ||
+    type === 'check' ||
+    type === 'flush' ||
+    type === 'removal' ||
+    type === 'custom_nurse'
+  )
 }
 
 export function generateActionsForMedication(
@@ -28,13 +39,17 @@ export function generateActionsForMedication(
   if (variant.actions && variant.actions.length > 0) {
     return [...variant.actions]
       .sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0))
-      .map((action) => ({
-        name: action.name,
-        duration: action.duration,
-        type: (action.type as GeneratedAction['type']) || 'custom',
-        description: action.type ? `${action.type} (${action.duration} min)` : `${action.duration} min`,
-        checkOffset: undefined
-      }))
+      .map((action) => {
+        const rawType = (action.type as GeneratedAction['type']) || 'custom'
+        const mappedType = action.nurseAction && rawType === 'custom' ? 'custom_nurse' : rawType
+        return {
+          name: action.name,
+          duration: action.duration,
+          type: mappedType,
+          description: action.type ? `${action.type} (${action.duration} min)` : `${action.duration} min`,
+          checkOffset: undefined
+        }
+      })
   }
 
   const actions: GeneratedAction[] = []
@@ -248,8 +263,14 @@ export function getTreatmentBreakdown(
       return acc
     }, {} as Record<string, number>)
 
+    const nurseTime = actions.reduce((sum, action) => {
+      const rawType = action.type || 'custom'
+      const nurseAction = action.nurseAction ?? isNurseType(rawType)
+      return nurseAction ? sum + action.duration : sum
+    }, 0)
+
     return {
-      vpkTime: (typeTotals.setup || 0) + (typeTotals.protocol_check || 0) + (typeTotals.check || 0) + (typeTotals.pc_switch || 0) + (typeTotals.removal || 0) + (typeTotals.custom || 0),
+      vpkTime: nurseTime,
       protocolCheckTime: typeTotals.protocol_check || 0,
       infusionTime: typeTotals.infusion || 0,
       observationTime: typeTotals.observation || 0,

@@ -12,14 +12,14 @@ import {
 import { generateActionsForMedication, getTreatmentBreakdown } from '@/utils/patients/actionGenerator'
 
 const ACTION_TEMPLATES: Array<Omit<MedicationActionTemplate, 'id' | 'startOffset'>> = [
-  { name: 'Aanbrengen infuus', duration: 15, type: 'setup' },
-  { name: 'Protocol controle', duration: 2, type: 'protocol_check' },
-  { name: 'Infuus loopt', duration: 30, type: 'infusion' },
-  { name: 'Check', duration: 5, type: 'check' },
-  { name: 'Observatie', duration: 30, type: 'observation' },
-  { name: 'Spoelen', duration: 5, type: 'flush' },
-  { name: 'Infuus Afkoppelen', duration: 5, type: 'removal' },
-  { name: 'Nieuwe handeling', duration: 5, type: 'custom' }
+  { name: 'Aanbrengen infuus', duration: 15, type: 'setup', nurseAction: true },
+  { name: 'Protocol controle', duration: 2, type: 'protocol_check', nurseAction: true },
+  { name: 'Infuus loopt', duration: 30, type: 'infusion', nurseAction: false },
+  { name: 'Check', duration: 5, type: 'check', nurseAction: true },
+  { name: 'Observatie', duration: 30, type: 'observation', nurseAction: true },
+  { name: 'Spoelen', duration: 5, type: 'flush', nurseAction: true },
+  { name: 'Infuus Afkoppelen', duration: 5, type: 'removal', nurseAction: true },
+  { name: 'Nieuwe handeling', duration: 5, type: 'custom', nurseAction: false }
 ]
 
 const ACTION_COLORS: Record<string, string> = {
@@ -31,6 +31,16 @@ const ACTION_COLORS: Record<string, string> = {
   flush: 'bg-cyan-500',
   removal: 'bg-rose-500',
   custom: 'bg-slate-500'
+}
+
+const isNurseType = (type?: string) => {
+  return (
+    type === 'setup' ||
+    type === 'protocol_check' ||
+    type === 'check' ||
+    type === 'flush' ||
+    type === 'removal'
+  )
 }
 
 const CATEGORY_LABELS: Record<Medication['category'], string> = {
@@ -262,6 +272,7 @@ export default function CalibratiePage() {
       name: template.name,
       duration: template.duration,
       type: template.type,
+      nurseAction: template.nurseAction,
       startOffset
     }
     addActionWithCollision(selectedMedication.id, selectedVariant.treatmentNumber, newAction)
@@ -811,6 +822,19 @@ export default function CalibratiePage() {
                                         <option value="removal">Afkoppelen</option>
                                         <option value="custom">Overig</option>
                                       </select>
+                                    </label>
+                                    <label className="flex items-center gap-2 text-xs text-slate-500">
+                                      <input
+                                        type="checkbox"
+                                        checked={action.nurseAction ?? isNurseType(action.type)}
+                                        onChange={(e) =>
+                                          updateAction(selectedMedication.id, selectedVariant.treatmentNumber, action.id, {
+                                            nurseAction: e.target.checked
+                                          })
+                                        }
+                                        className="h-4 w-4 rounded border border-slate-300 text-blue-600 focus:ring-blue-500"
+                                      />
+                                      Handeling vereist verpleegkundige
                                     </label>
                                     <button
                                       onClick={() => removeAction(selectedMedication.id, selectedVariant.treatmentNumber, action.id)}

@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate } from '@/types'
 import { getMedicationById } from '@/types/medications'
 import { calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
-import { StaffScheduler } from '@/utils/staff/staffAssignment'
 
 interface StaffTimelineProps {
   patients: Patient[]
@@ -38,30 +37,103 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   // Calculate all activities
   const activities: StaffActivity[] = []
   
-  // Build a temporary schedule for visualization using StaffScheduler
-  // Rules: 
-  // - Exclude: infusion, observation, cito/lab/urine (not modeled)
-  // - Include: setup (aanbrengen), protocol_check, flush (only if no observation), pc_switch, removal
-  // - First assign all setups respecting max patients; then assign other actions at their times
-  // Use useMemo to prevent recreating scheduler on every render
-  const scheduler = useMemo(
-    () => new StaffScheduler(availableStaff, dayOfWeek, undefined, { suppressLogs: true }),
-    [availableStaff, dayOfWeek]
-  )
+  const staffAvailability = useMemo(() => {
+    return availableStaff.map(staff => ({
+      name: staff.name,
+      maxPatients: staff.maxPatients,
+      maxWorkTime: staff.maxWorkTime,
+      setupCount: 0,
+      totalWorkload: 0,
+      tasks: [] as { start: number; end: number }[]
+    }))
+  }, [availableStaff])
+
+  const canWorkUntil = (maxWorkTime: number | undefined, endMinutesValue: number) => {
+    if (!maxWorkTime) return true
+    return endMinutesValue <= startMinutes + maxWorkTime
+  }
+
+  const hasOverlap = (tasks: { start: number; end: number }[], start: number, end: number) => {
+    return tasks.some(task => start < task.end && end > task.start)
+  }
+
+  const assignSetupAtTime = (start: number, duration: number) => {
+    const end = start + duration
+    const candidates = staffAvailability.filter(staff =>
+      staff.setupCount < staff.maxPatients &&
+      canWorkUntil(staff.maxWorkTime, end) &&
+      !hasOverlap(staff.tasks, start, end)
+    )
+    if (candidates.length === 0) return null
+    const best = [...candidates].sort((a, b) => {
+      if (a.setupCount !== b.setupCount) return a.setupCount - b.setupCount
+      return a.totalWorkload - b.totalWorkload
+    })[0]
+    best.setupCount += 1
+    best.totalWorkload += duration
+    best.tasks.push({ start, end })
+    return best.name
+  }
+
+  const assignActionAtTime = (start: number, duration: number, excludeStaff?: string) => {
+    const end = start + duration
+    const candidates = staffAvailability.filter(staff =>
+      staff.name !== excludeStaff &&
+      canWorkUntil(staff.maxWorkTime, end) &&
+      !hasOverlap(staff.tasks, start, end)
+    )
+    if (candidates.length === 0) return null
+    const best = [...candidates].sort((a, b) => a.totalWorkload - b.totalWorkload)[0]
+    best.totalWorkload += duration
+    best.tasks.push({ start, end })
+    return best.name
+  }
   
-  patients.forEach(patient => {
+  const sortedPatients = [...patients].sort((a, b) => a.startTime.localeCompare(b.startTime))
+  const setupStaffByPatientId: Record<string, string | undefined> = {}
+
+  const inferActionType = (action: Patient['actions'][number]) => {
+    if (action.type) return action.type
+    const name = action.name.toLowerCase()
+    if (name.includes('aanbreng')) return 'setup'
+    if (name.includes('protocol')) return 'protocol_check'
+    if (name.includes('afkoppel')) return 'removal'
+    if (name.includes('spoel')) return 'flush'
+    if (name.includes('observ')) return 'observation'
+    if (name.includes('loopt')) return 'infusion'
+    if (name.includes('pc wissel')) return 'pc_switch'
+    if (name.includes('check') || name.includes('controle')) return 'check'
+    return 'custom'
+  }
+
+  sortedPatients.forEach(patient => {
+    const [hours, minutes] = patient.startTime.split(':').map(Number)
+    const patientStartMinutes = hours * 60 + minutes
+    const setupAction = patient.actions.find(action => inferActionType(action) === 'setup')
+    if (!setupAction) return
+    const setupStaff = assignSetupAtTime(patientStartMinutes, setupAction.duration)
+    if (!setupStaff) return
+    setupStaffByPatientId[patient.id] = setupStaff
+    activities.push({
+      staff: setupStaff,
+      startMinutes: patientStartMinutes,
+      duration: setupAction.actualDuration || setupAction.duration,
+      actionName: setupAction.name,
+      patientName: patient.name,
+      type: setupAction.type || 'setup'
+    })
+  })
+
+  sortedPatients.forEach(patient => {
     const [hours, minutes] = patient.startTime.split(':').map(Number)
     const patientStartMinutes = hours * 60 + minutes
     let currentMinutes = patientStartMinutes
-    
-    // Determine if there is any observation action for this patient
-    const hasObservation = patient.actions.some(a => a.type === 'observation')
     
     // Track when infusion starts to position dependent actions that may specify offsets
     let infusionStartMinutes = 0
     let cumulativeMinutesForInfusion = 0
     patient.actions.forEach(a => {
-      if (a.type === 'infusion') {
+      if (inferActionType(a) === 'infusion') {
         infusionStartMinutes = patientStartMinutes + cumulativeMinutesForInfusion
       }
       cumulativeMinutesForInfusion += a.duration
@@ -69,37 +141,42 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
     
     const medication = getMedicationById(patient.medicationType)
     
-    // We will keep reference to setup staff to exclude them from protocol_check
-    let setupStaffForPatient: string | undefined
-    
-    // First pass: assign setup immediately when encountered (counts as patient)
-    // Second pass continues inline for other actions using scheduler availability
+    // First pass assigned setup; now assign remaining actions
     let checkCount = 0
     let pcSwitchCount = 0
+    const isNurseAction = (actionType?: string, nurseFlag?: boolean, hasStaff?: boolean) => {
+      if (nurseFlag !== undefined) return nurseFlag
+      if (!actionType && hasStaff) return true
+      return (
+        actionType === 'setup' ||
+        actionType === 'protocol_check' ||
+        actionType === 'check' ||
+        actionType === 'flush' ||
+        actionType === 'removal' ||
+        actionType === 'custom_nurse'
+      )
+    }
     
     for (const action of patient.actions) {
       let startMinutesForAction = currentMinutes
       
+      const inferredType = inferActionType(action)
+      const hasStaff = Boolean(action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen')
+
       // Derive explicit times for actions with offsets relative to infusion start
-      if ((action.type === 'pc_switch') && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
+      if ((inferredType === 'pc_switch') && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
         pcSwitchCount++
         startMinutesForAction = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
       }
+      if ((inferredType === 'check') && infusionStartMinutes > 0 && action.checkOffset !== undefined) {
+        startMinutesForAction = infusionStartMinutes + action.checkOffset
+      } else if ((inferredType === 'check') && infusionStartMinutes > 0 && medication?.checkInterval) {
+        checkCount++
+        startMinutesForAction = infusionStartMinutes + (checkCount * medication.checkInterval)
+      }
       
       // Exclusions
-      if (action.type === 'infusion' || action.type === 'observation') {
-        currentMinutes += action.duration
-        continue
-      }
-      
-      // 'check' does not count/show in this overview
-      if (action.type === 'check') {
-        currentMinutes += action.duration
-        continue
-      }
-      
-      // 'flush' only counts if there is no observation block
-      if (action.type === 'flush' && hasObservation) {
+      if (inferredType === 'infusion' || !isNurseAction(inferredType, action.nurseAction, hasStaff)) {
         currentMinutes += action.duration
         continue
       }
@@ -109,25 +186,20 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
       const actionStartTime = `${actionStartHours.toString().padStart(2, '0')}:${actionStartMins.toString().padStart(2, '0')}`
       
       let assignedStaff: string | null = null
-      let scheduledStartMinutes = startMinutesForAction
+      const scheduledStartMinutes = startMinutesForAction
       const effectiveDuration = action.actualDuration || action.duration
       
-      if (action.type === 'setup') {
-        const assignment = scheduler.assignStaffForSetup(actionStartTime, action.duration)
-        assignedStaff = assignment.staff
-        const [ah, am] = assignment.actualStartTime.split(':').map(Number)
-        scheduledStartMinutes = ah * 60 + am
-        setupStaffForPatient = assignment.staff !== 'GEEN' ? assignment.staff : undefined
-      } else if (action.type === 'protocol_check') {
-        const assignment = scheduler.assignStaffForAction(action.type, effectiveDuration, actionStartTime, setupStaffForPatient)
-        assignedStaff = assignment.staff
-        const [ah, am] = assignment.actualStartTime.split(':').map(Number)
-        scheduledStartMinutes = ah * 60 + am
-      } else if (action.type === 'flush' || action.type === 'pc_switch' || action.type === 'removal') {
-        const assignment = scheduler.assignStaffForAction(action.type, effectiveDuration, actionStartTime)
-        assignedStaff = assignment.staff
-        const [ah, am] = assignment.actualStartTime.split(':').map(Number)
-        scheduledStartMinutes = ah * 60 + am
+      if (inferredType === 'setup') {
+        currentMinutes += action.duration
+        continue
+      } else if (inferredType === 'protocol_check') {
+        const setupStaffForPatient = setupStaffByPatientId[patient.id]
+        assignedStaff = assignActionAtTime(startMinutesForAction, effectiveDuration, setupStaffForPatient)
+        if (!assignedStaff && setupStaffForPatient) {
+          assignedStaff = assignActionAtTime(startMinutesForAction, effectiveDuration)
+        }
+      } else if (inferredType === 'flush' || inferredType === 'pc_switch' || inferredType === 'removal' || inferredType === 'check' || inferredType === 'custom_nurse') {
+        assignedStaff = assignActionAtTime(startMinutesForAction, effectiveDuration)
       }
       
       if (assignedStaff && assignedStaff !== 'GEEN') {
@@ -139,7 +211,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
             duration: effectiveDuration,
             actionName: action.name,
             patientName: patient.name,
-            type: action.type || 'other'
+            type: inferredType || 'other'
           })
         }
       }
@@ -210,6 +282,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
       case 'pc_switch': return 'bg-blue-500' // PC wissel in blauw
       case 'flush': return 'bg-green-700'
       case 'observation': return 'bg-green-500'
+      case 'custom_nurse': return 'bg-slate-600'
       default: return 'bg-slate-500'
     }
   }
@@ -222,6 +295,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
       case 'pc_switch': return 'border-blue-600'
       case 'flush': return 'border-green-700'
       case 'observation': return 'border-green-600'
+      case 'custom_nurse': return 'border-slate-600'
       default: return 'border-slate-600'
     }
   }

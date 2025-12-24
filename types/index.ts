@@ -5,6 +5,7 @@ export interface Action {
   staff?: string
   type?: string // 'setup', 'protocol_check', 'infusion', 'check', 'pc_switch', 'removal', 'observation', 'flush'
   actualDuration?: number // For checks, PC switches, and protocol checks during infusion
+  nurseAction?: boolean
   patientId: string
   createdAt: Date
   updatedAt: Date

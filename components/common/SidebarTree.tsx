@@ -27,7 +27,7 @@ const navTree: NavSection[] = [
     items: [
       { label: 'Planning', href: '/dagplanning/planning' },
       { label: 'Behandelingen', href: '/dagplanning/behandelingen' },
-      { label: 'Medewerkers', href: '/dagplanning/medewerkers' },
+      { label: 'Handelingen Overzicht', href: '/dagplanning/medewerkers' },
       { label: 'Analyse', href: '/dagplanning/analyse' }
     ]
   },
@@ -40,8 +40,7 @@ const navTree: NavSection[] = [
       </svg>
     ),
     items: [
-      { label: 'CAP Overzicht', href: '/weekplanning/cap-overzicht' },
-      { label: 'Behandelingen', href: '/weekplanning/behandelingen' }
+      { label: 'CAP Overzicht', href: '/weekplanning/cap-overzicht' }
     ]
   },
   {

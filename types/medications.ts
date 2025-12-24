@@ -13,6 +13,7 @@ export interface MedicationActionTemplate {
   duration: number
   type?: string
   startOffset?: number
+  nurseAction?: boolean
 }
 
 export interface MedicationVariant {

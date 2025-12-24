@@ -6,10 +6,12 @@ import { getDayOfWeekFromDate, getMondayOfWeek } from '@/types'
 import StaffTimeline from '@/components/staff/StaffTimeline'
 import { buildScheduleFromWorkDays } from '@/utils/staff/workDays'
 import { buildRampOccurrenceCounts, getRampValuesForOccurrence, loadRampSchedules } from '@/utils/staff/rampSchedules'
+import DatePicker from '@/components/planning/DatePicker'
 
 export default function MedewerkersPage() {
   const {
     selectedDate,
+    setSelectedDate,
     patients,
     staffMembers,
     staffSchedule,
@@ -46,13 +48,27 @@ export default function MedewerkersPage() {
     })
   }, [staffMembers, rampOccurrencesByDate, rampSchedules, selectedDate])
 
+  const filteredStaff = (names && names.length > 0)
+    ? adjustedStaffMembers.filter(s => names.includes(s.name))
+    : []
+
   return (
-    <StaffTimeline
-      patients={patients}
-      selectedDate={selectedDate}
-      staffMembers={(names && names.length > 0)
-        ? adjustedStaffMembers.filter(s => names.includes(s.name))
-        : adjustedStaffMembers}
-    />
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex flex-col">
+      <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white flex items-center justify-between">
+        <h2 className="text-xl font-bold text-slate-900">Handelingen Overzicht</h2>
+        <DatePicker
+          value={selectedDate}
+          onChange={setSelectedDate}
+          staffMembers={staffMembers}
+        />
+      </div>
+      <div className="flex-1">
+        <StaffTimeline
+          patients={patients}
+          selectedDate={selectedDate}
+          staffMembers={filteredStaff}
+        />
+      </div>
+    </div>
   )
 }
