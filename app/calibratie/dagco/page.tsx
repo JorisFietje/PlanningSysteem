@@ -38,7 +38,7 @@ export default function CalibratieDagcoPage() {
     setRampSchedules(prev => {
       const schedule = prev[staffName]?.items ? [...prev[staffName].items] : []
       const nextWeek = Math.max(0, ...schedule.map(item => item.week || 0)) + 1
-      schedule.push({ week: nextWeek, startTime: '08:00', endTime: '16:00', patients: null })
+      schedule.push({ week: nextWeek, startTime: '08:00', endTime: '16:30', patients: null })
       return { ...prev, [staffName]: { ...prev[staffName], items: schedule } as any }
     })
   }
@@ -70,7 +70,7 @@ export default function CalibratieDagcoPage() {
         createdAt: today.toISOString().slice(0, 10),
         startWeek: weekInfo.week,
         startWeekYear: weekInfo.year,
-        items: [{ week: 1, startTime: '08:00', endTime: '16:00', patients: null }]
+        items: [{ week: 1, startTime: '08:00', endTime: '16:30', patients: null }]
       }
     }))
     setSelectedRampStaff('')
@@ -239,7 +239,7 @@ export default function CalibratieDagcoPage() {
                               ))}
                             </select>
                             <select
-                              value={item.endTime ?? '16:00'}
+                              value={item.endTime ?? '16:30'}
                               onChange={(e) => updateRampSchedule(staffName, index, { endTime: e.target.value })}
                               className="px-2 py-1 border border-slate-200 rounded text-center bg-white"
                             >

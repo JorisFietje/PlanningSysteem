@@ -73,14 +73,14 @@ export async function assignActionsToPatient(
           const delay = delayedMinutes - actionStartMinutes
           if (delay > 0) {
             const newEndMinutes = delayedMinutes + totalDuration
-            const closingMinutes = DEPARTMENT_CONFIG.END_HOUR * 60
+            const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES
 
             if (newEndMinutes > closingMinutes) {
               const endHours = Math.floor(newEndMinutes / 60)
               const endMins = String(newEndMinutes % 60).padStart(2, '0')
-              console.log(`⚠️ Setup delay would cause ${patient.name} to end at ${endHours}:${endMins}, after closing (16:00). Deleting patient.`)
+              console.log(`⚠️ Setup delay would cause ${patient.name} to end at ${endHours}:${endMins}, after closing (16:30). Deleting patient.`)
               await deletePatient(patient.id)
-              showNotification?.(`${patient.name} geannuleerd - zou na sluitingstijd (16:00) eindigen`, 'warning')
+              showNotification?.(`${patient.name} geannuleerd - zou na sluitingstijd (16:30) eindigen`, 'warning')
               return { success: false, cancelled: true }
             }
 
@@ -154,14 +154,14 @@ export async function assignActionsToPatient(
           const delay = delayedMinutes - actionStartMinutes
           if (delay > 0) {
             const estimatedEndMinutes = delayedMinutes + duration
-            const closingMinutes = DEPARTMENT_CONFIG.END_HOUR * 60
+            const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES
 
             if (estimatedEndMinutes > closingMinutes) {
               const endHours = Math.floor(estimatedEndMinutes / 60)
               const endMins = String(estimatedEndMinutes % 60).padStart(2, '0')
-              console.log(`⚠️ ${action.type} delay would cause ${patient.name} to end at ${endHours}:${endMins}, after closing (16:00). Deleting patient.`)
+              console.log(`⚠️ ${action.type} delay would cause ${patient.name} to end at ${endHours}:${endMins}, after closing (16:30). Deleting patient.`)
               await deletePatient(patient.id)
-              showNotification?.(`${patient.name} geannuleerd - zou na sluitingstijd (16:00) eindigen`, 'warning')
+              showNotification?.(`${patient.name} geannuleerd - zou na sluitingstijd (16:30) eindigen`, 'warning')
               return { success: false, cancelled: true }
             }
 
@@ -257,4 +257,3 @@ export async function addPatientWithActions(
 
   return { success: result.success, patient }
 }
-

@@ -96,16 +96,24 @@ export function validateTreatmentTime(
   const totalDuration = calculateTotalTreatmentTime(medicationId, treatmentNumber)
   const [startHours, startMinutes] = startTime.split(':').map(Number)
   const startInMinutes = startHours * 60 + startMinutes
+  const openingTime = DEPARTMENT_CONFIG.START_MINUTES
   const endInMinutes = startInMinutes + totalDuration
-  const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60
+  const closingTime = DEPARTMENT_CONFIG.END_MINUTES
   
+  if (startInMinutes < openingTime || startInMinutes > closingTime) {
+    return {
+      valid: false,
+      message: `Starttijd moet tussen 08:00 en 16:30 liggen.`
+    }
+  }
+
   if (endInMinutes > closingTime) {
     const endHours = Math.floor(endInMinutes / 60)
     const endMins = endInMinutes % 60
     
     return {
       valid: false,
-      message: `Behandeling zou eindigen om ${endHours}:${String(endMins).padStart(2, '0')}, maar de afdeling sluit om 16:00. Kies een eerdere starttijd.`
+      message: `Behandeling zou eindigen om ${endHours}:${String(endMins).padStart(2, '0')}, maar de afdeling sluit om 16:30. Kies een eerdere starttijd.`
     }
   }
   
@@ -127,4 +135,3 @@ export function validateCapacity(
   
   return { valid: true }
 }
-

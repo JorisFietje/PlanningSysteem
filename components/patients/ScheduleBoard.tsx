@@ -1,6 +1,6 @@
 'use client'
 
-import { Patient } from '@/types'
+import { DEPARTMENT_CONFIG, Patient } from '@/types'
 import { getTotalDuration } from '@/utils/planning/workload'
 import { getMedicationById } from '@/types/medications'
 import { useState, useRef, useEffect } from 'react'
@@ -10,6 +10,7 @@ interface ScheduleBoardProps {
   onAddPatient?: () => void
   onDeletePatient?: (patientId: string) => void
   onUpdateInfusionDuration?: (patientId: string, actionId: string, duration: number) => Promise<boolean>
+  onUpdateActionDuration?: (patientId: string, actionId: string, duration: number) => Promise<boolean>
   onUpdatePatientStartTime?: (patientId: string, startTime: string) => Promise<boolean>
   onDuplicatePatient?: (patient: Patient) => void
   showHeader?: boolean
@@ -26,11 +27,15 @@ export default function ScheduleBoard({
   onAddPatient,
   onDeletePatient,
   onUpdateInfusionDuration,
+  onUpdateActionDuration,
   onUpdatePatientStartTime,
   onDuplicatePatient,
   showHeader = true
 }: ScheduleBoardProps) {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
+  const [actionDurations, setActionDurations] = useState<Record<string, string>>({})
+  const [actionUpdateMessage, setActionUpdateMessage] = useState<string>('')
+  const [actionUpdateError, setActionUpdateError] = useState<string>('')
   const [hoveredPatient, setHoveredPatient] = useState<{ patient: Patient, element: HTMLElement } | null>(null)
   const [resizeState, setResizeState] = useState<{
     patientId: string
@@ -45,6 +50,7 @@ export default function ScheduleBoard({
   const [dragState, setDragState] = useState<{
     patientId: string
     startY: number
+    grabOffsetPx: number
     startMinutes: number
     startColumn: number
     minMinutes: number
@@ -57,14 +63,20 @@ export default function ScheduleBoard({
   const timelineRef = useRef<HTMLDivElement>(null)
   const dragMovedRef = useRef(false)
   
-  const startHour = 8  // Afdeling werktijden: 08:00 - 16:00
-  const endHour = 16
+  const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
+  const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
+  const startHour = Math.floor(startMinutes / 60)
+  const endHour = Math.floor(endMinutes / 60)
+  const endMinuteRemainder = endMinutes % 60
   const chairColumns = 17
-  const minGapMinutes = 5
+  const minGapMinutes = 0
   const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => {
     const h = startHour + i
     return `${h.toString().padStart(2, '0')}:00`
   })
+  if (endMinuteRemainder > 0) {
+    hours.push(`${endHour.toString().padStart(2, '0')}:${endMinuteRemainder.toString().padStart(2, '0')}`)
+  }
 
   const isEmpty = patients.length === 0
 
@@ -146,6 +158,25 @@ export default function ScheduleBoard({
     })
   }, [patients, chairColumns])
 
+  useEffect(() => {
+    if (!selectedPatient) return
+    const updated = patients.find(p => p.id === selectedPatient.id)
+    if (updated && updated !== selectedPatient) {
+      setSelectedPatient(updated)
+    }
+  }, [patients, selectedPatient])
+
+  useEffect(() => {
+    if (!selectedPatient) return
+    const nextActionDurations: Record<string, string> = {}
+    selectedPatient.actions.forEach(action => {
+      nextActionDurations[action.id] = String(action.duration)
+    })
+    setActionDurations(nextActionDurations)
+    setActionUpdateMessage('')
+    setActionUpdateError('')
+  }, [selectedPatient])
+
   const maxColumns = chairColumns
   
   // Calculate positioning for each patient
@@ -153,7 +184,7 @@ export default function ScheduleBoard({
   
   timeSlots.forEach(slot => {
     const colIndex = getPatientColumn(slot.patient)
-    const position = ((slot.startMinutes - (startHour * 60)) / 60) * 80
+    const position = ((slot.startMinutes - startMinutes) / 60) * 80
     const height = Math.max(((slot.endMinutes - slot.startMinutes) / 60) * 80, 50)
     patientPositions.set(slot.patient.id, {
       column: colIndex,
@@ -193,6 +224,53 @@ export default function ScheduleBoard({
   const hasMultipleColumns = maxColumns > 1
   const isResizing = Boolean(resizeState)
   const isDragging = Boolean(dragState)
+
+  const handleSaveActionDurations = async () => {
+    if (!selectedPatient || !onUpdateActionDuration) return
+    setActionUpdateMessage('')
+    setActionUpdateError('')
+    const changes = selectedPatient.actions
+      .map(action => {
+        const draft = actionDurations[action.id]
+        if (draft === undefined || draft === '') return null
+        const nextDuration = parseInt(draft, 10)
+        if (Number.isNaN(nextDuration) || nextDuration < 1) return null
+        if (nextDuration === action.duration) return null
+        return { actionId: action.id, duration: nextDuration }
+      })
+      .filter((change): change is { actionId: string; duration: number } => Boolean(change))
+
+    if (changes.length === 0) {
+      setActionUpdateMessage('Geen wijzigingen om op te slaan.')
+      return
+    }
+
+    let hadFailure = false
+    for (const change of changes) {
+      const ok = await onUpdateActionDuration(selectedPatient.id, change.actionId, change.duration)
+      if (!ok) {
+        hadFailure = true
+        break
+      }
+    }
+
+    if (hadFailure) {
+      setActionUpdateError('Niet alle handelingen konden worden bijgewerkt.')
+      return
+    }
+
+    setSelectedPatient(prev => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        actions: prev.actions.map(action => {
+          const updated = changes.find(change => change.actionId === action.id)
+          return updated ? { ...action, duration: updated.duration } : action
+        })
+      }
+    })
+    setActionUpdateMessage('Handelingen bijgewerkt.')
+  }
 
   useEffect(() => {
     if (!resizeState) return
@@ -241,10 +319,13 @@ export default function ScheduleBoard({
       const nextColumn = Math.max(0, Math.min(chairColumns - 1, Math.floor(x / colWidth)))
       const deltaY = event.clientY - dragState.startY
       if (Math.abs(deltaY) > 2) dragMovedRef.current = true
-      const deltaMinutes = Math.round((deltaY / 35) * 60 / 5) * 5
+      const minutesPerPixel = 60 / 80
+      const yFromTimelineTop = event.clientY - rect.top - dragState.grabOffsetPx
+      const rawMinutes = startMinutes + yFromTimelineTop * minutesPerPixel
+      const snappedMinutes = Math.round(rawMinutes / 15) * 15
       const nextMinutes = Math.max(
         dragState.minMinutes,
-        Math.min(dragState.maxMinutes, dragState.startMinutes + deltaMinutes)
+        Math.min(dragState.maxMinutes, snappedMinutes)
       )
       setDragStartTimes(prev => ({
         ...prev,
@@ -265,7 +346,7 @@ export default function ScheduleBoard({
       }
       const duration = getPatientDuration(patient)
       const [h, m] = nextStartTime.split(':').map(Number)
-      let proposedStart = Math.round((h * 60 + m) / 5) * 5
+      let proposedStart = Math.round((h * 60 + m) / 15) * 15
 
       const isValid = (startMinutes: number) => {
         const endMinutes = startMinutes + duration
@@ -276,17 +357,16 @@ export default function ScheduleBoard({
         })
       }
 
-      const snapUpTo5 = (minutes: number) => Math.ceil(minutes / 5) * 5
+      const snapUpTo15 = (minutes: number) => Math.ceil(minutes / 15) * 15
 
       const bumpBelowOverlap = () => {
         const columnSlots = timeSlots
           .filter(slot => slot.patient.id !== patient.id && getPatientColumn(slot.patient) === nextColumn)
           .sort((a, b) => a.startMinutes - b.startMinutes)
         for (const slot of columnSlots) {
-          const overlap = proposedStart < slot.endMinutes + minGapMinutes
-            && proposedStart + duration > slot.startMinutes - minGapMinutes
+          const overlap = proposedStart < slot.endMinutes && proposedStart + duration > slot.startMinutes
           if (overlap) {
-            proposedStart = snapUpTo5(slot.endMinutes + minGapMinutes)
+            proposedStart = snapUpTo15(slot.endMinutes)
           }
         }
       }
@@ -308,7 +388,7 @@ export default function ScheduleBoard({
       }
 
       const findNearestValid = () => {
-        for (let offset = 0; offset <= dragState.maxMinutes - dragState.minMinutes; offset += 5) {
+        for (let offset = 0; offset <= dragState.maxMinutes - dragState.minMinutes; offset += 15) {
           const forward = proposedStart + offset
           if (forward <= dragState.maxMinutes && isValid(forward)) return forward
           const backward = proposedStart - offset
@@ -519,7 +599,7 @@ export default function ScheduleBoard({
                     left: `calc(${leftPosition}% + 2px)`,
                     width: `calc(${columnWidth}% - 4px)`,
                     padding: isExtremelyCompact ? '4px 6px' : isVeryCompact ? '6px 8px' : isCompact ? '8px 10px' : '10px 12px',
-                    zIndex: 10 + pos.column,
+                    zIndex: dragState?.patientId === patient.id ? 2000 : 10 + pos.column,
                     minWidth: isExtremelyCompact ? '60px' : isVeryCompact ? '80px' : 'auto',
                     transformOrigin: 'center center',
                     transform: 'scale(1)',
@@ -544,14 +624,16 @@ export default function ScheduleBoard({
                     event.preventDefault()
                     event.stopPropagation()
                     dragMovedRef.current = false
+                    const elementRect = event.currentTarget.getBoundingClientRect()
                     const [startH, startM] = getPatientStartTime(patient).split(':').map(Number)
                     const startMinutes = startH * 60 + startM
                     const duration = getPatientDuration(patient)
-                    const minMinutes = startHour * 60
-                    const maxMinutes = Math.max((endHour * 60) - duration, minMinutes)
+                    const minMinutes = DEPARTMENT_CONFIG.START_MINUTES
+                    const maxMinutes = Math.max(endMinutes - duration, minMinutes)
                     setDragState({
                       patientId: patient.id,
                       startY: event.clientY,
+                      grabOffsetPx: event.clientY - elementRect.top,
                       startMinutes,
                       startColumn: getPatientColumn(patient),
                       minMinutes,
@@ -598,7 +680,7 @@ export default function ScheduleBoard({
                       .reduce((sum, action) => sum + action.duration, 0)
                     const [startH, startM] = patient.startTime.split(':').map(Number)
                     const startMinutes = startH * 60 + startM
-                    const maxDuration = Math.max((endHour * 60) - startMinutes, nonInfusionDuration + 1)
+                    const maxDuration = Math.max(endMinutes - startMinutes, nonInfusionDuration + 1)
                     const minDuration = nonInfusionDuration + 1
 
                     return (
@@ -888,15 +970,47 @@ export default function ScheduleBoard({
                             ) : null}
                           </div>
                           <div className="text-right ml-3">
-                            <div className="font-bold text-base text-slate-900">
-                              {durationText}
-                            </div>
+                            {onUpdateActionDuration ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={actionDurations[action.id] ?? ''}
+                                  onChange={(e) =>
+                                    setActionDurations(prev => ({ ...prev, [action.id]: e.target.value }))
+                                  }
+                                  className="w-20 px-2 py-1 rounded-md border-2 border-slate-200 bg-white text-slate-900 text-sm"
+                                />
+                                <span className="text-xs text-slate-500">min</span>
+                              </div>
+                            ) : (
+                              <div className="font-bold text-base text-slate-900">
+                                {durationText}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
                     )
                   })}
                 </div>
+                {onUpdateActionDuration && (
+                  <div className="mt-3">
+                    {actionUpdateMessage && (
+                      <div className="text-xs text-green-700">{actionUpdateMessage}</div>
+                    )}
+                    {actionUpdateError && (
+                      <div className="text-xs text-red-700">{actionUpdateError}</div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleSaveActionDurations}
+                      className="mt-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-semibold transition-colors"
+                    >
+                      Handelingen opslaan
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Summary */}

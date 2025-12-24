@@ -146,7 +146,7 @@ export async function generateWeekPlan(
         const [hours, minutes] = timeSlot.split(':').map(Number)
         const startMinutes = hours * 60 + minutes
         const endMinutes = startMinutes + totalDuration
-        const closingMinutes = DEPARTMENT_CONFIG.END_HOUR * 60
+        const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES
 
         if (endMinutes > closingMinutes) {
           continue

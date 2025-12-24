@@ -14,6 +14,7 @@ interface PatientModalProps {
   staffMembers: StaffMember[]
   editingPatient?: Patient | null
   onUpdate?: (patientId: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string, customInfusionMinutes?: number) => void
+  onUpdateActionDuration?: (patientId: string, actionId: string, duration: number) => Promise<boolean>
 }
 
 // Generate a unique patient name based on medication and counter
@@ -24,7 +25,7 @@ function generatePatientName(medicationName: string): string {
   return name
 }
 
-export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, staffMembers, editingPatient, onUpdate }: PatientModalProps) {
+export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, staffMembers, editingPatient, onUpdate, onUpdateActionDuration }: PatientModalProps) {
   const isEditing = !!editingPatient
   
   const [startTime, setStartTime] = useState('08:00')
@@ -33,6 +34,9 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const [treatmentNumber, setTreatmentNumber] = useState(1)
   // Optional custom total duration (minutes)
   const [customTotalMinutes, setCustomTotalMinutes] = useState<string>('')
+  const [actionDurations, setActionDurations] = useState<Record<string, string>>({})
+  const [actionUpdateMessage, setActionUpdateMessage] = useState<string>('')
+  const [actionUpdateError, setActionUpdateError] = useState<string>('')
   
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
@@ -71,6 +75,13 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         } else {
           setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '')
         }
+        const nextActionDurations: Record<string, string> = {}
+        editingPatient.actions.forEach(action => {
+          nextActionDurations[action.id] = String(action.duration)
+        })
+        setActionDurations(nextActionDurations)
+        setActionUpdateMessage('')
+        setActionUpdateError('')
       } else {
         // Reset for new patient
         setStartTime('08:00')
@@ -79,6 +90,9 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         setTreatmentNumber(1)
         setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '')
         setCustomTotalMinutes('')
+        setActionDurations({})
+        setActionUpdateMessage('')
+        setActionUpdateError('')
       }
     }
   }, [isOpen, editingPatient])
@@ -102,6 +116,43 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const effectiveInfusion = breakdown
     ? Math.max(1, effectiveTotal - nonInfusionTime)
     : 0
+
+  const handleSaveActionDurations = async () => {
+    if (!editingPatient || !onUpdateActionDuration) return
+    setActionUpdateMessage('')
+    setActionUpdateError('')
+    const changes = editingPatient.actions
+      .map(action => {
+        const draft = actionDurations[action.id]
+        if (draft === undefined || draft === '') return null
+        const nextDuration = parseInt(draft, 10)
+        if (Number.isNaN(nextDuration) || nextDuration < 1) return null
+        if (nextDuration === action.duration) return null
+        return { actionId: action.id, duration: nextDuration }
+      })
+      .filter((change): change is { actionId: string; duration: number } => Boolean(change))
+
+    if (changes.length === 0) {
+      setActionUpdateMessage('Geen wijzigingen om op te slaan.')
+      return
+    }
+
+    let hadFailure = false
+    for (const change of changes) {
+      const ok = await onUpdateActionDuration(editingPatient.id, change.actionId, change.duration)
+      if (!ok) {
+        hadFailure = true
+        break
+      }
+    }
+
+    if (hadFailure) {
+      setActionUpdateError('Niet alle handelingen konden worden bijgewerkt.')
+      return
+    }
+
+    setActionUpdateMessage('Handelingen bijgewerkt.')
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -148,7 +199,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const [startHours, startMinutes] = startTime.split(':').map(Number)
   const startInMinutes = startHours * 60 + startMinutes
   const endInMinutes = breakdown ? startInMinutes + effectiveTotal : startInMinutes
-  const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60
+  const closingTime = DEPARTMENT_CONFIG.END_MINUTES
   const endsAfterClosing = endInMinutes > closingTime
 
   if (!isOpen) return null
@@ -254,6 +305,41 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
               onChange={setStartTime}
               label="Start Tijd (15 min intervallen)"
             />
+
+            {isEditing && editingPatient && (
+              <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                <h3 className="font-bold text-sm mb-3 text-slate-900">Handelingen (minuten)</h3>
+                <div className="space-y-2">
+                  {editingPatient.actions.map(action => (
+                    <div key={action.id} className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-slate-700">{action.name}</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={actionDurations[action.id] ?? ''}
+                        onChange={(e) =>
+                          setActionDurations(prev => ({ ...prev, [action.id]: e.target.value }))
+                        }
+                        className="w-24 px-2 py-1 rounded-md border-2 border-slate-200 bg-white text-slate-900 text-sm"
+                      />
+                    </div>
+                  ))}
+                </div>
+                {actionUpdateMessage && (
+                  <div className="text-xs text-green-700 mt-2">{actionUpdateMessage}</div>
+                )}
+                {actionUpdateError && (
+                  <div className="text-xs text-red-700 mt-2">{actionUpdateError}</div>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSaveActionDurations}
+                  className="mt-3 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-semibold transition-colors"
+                >
+                  Handelingen opslaan
+                </button>
+              </div>
+            )}
 
             {/* Custom total duration override */}
             <div>

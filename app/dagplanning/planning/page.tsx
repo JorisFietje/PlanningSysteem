@@ -316,9 +316,42 @@ export default function PlanningPage() {
     return true
   }
 
+  const handleUpdateActionDuration = async (patientId: string, actionId: string, duration: number) => {
+    const ok = await updateActionDuration(actionId, duration)
+    if (!ok) {
+      showNotification('Fout bij aanpassen handeling', 'warning')
+      return false
+    }
+    setPatients(prev =>
+      prev.map(patient => {
+        if (patient.id !== patientId) return patient
+        return {
+          ...patient,
+          actions: patient.actions.map(action =>
+            action.id === actionId ? { ...action, duration } : action
+          )
+        }
+      })
+    )
+    if (editingPatient?.id === patientId) {
+      setEditingPatient(prev =>
+        prev
+          ? {
+              ...prev,
+              actions: prev.actions.map(action =>
+                action.id === actionId ? { ...action, duration } : action
+              )
+            }
+          : prev
+      )
+    }
+    showNotification('Handeling aangepast', 'success')
+    return true
+  }
+
   const handleUpdatePatientStartTime = async (patientId: string, startTime: string) => {
     const [hours, minutes] = startTime.split(':').map(Number)
-    const roundedMinutes = Math.round(minutes / 5) * 5
+    const roundedMinutes = Math.round(minutes / 15) * 15
     const carryHours = Math.floor(roundedMinutes / 60)
     const normalizedMinutes = roundedMinutes % 60
     const normalizedHours = hours + carryHours
@@ -418,6 +451,7 @@ export default function PlanningPage() {
             onAddPatient={undefined}
             onDeletePatient={handleDeletePatient}
             onUpdateInfusionDuration={handleUpdateInfusionDuration}
+            onUpdateActionDuration={handleUpdateActionDuration}
             onUpdatePatientStartTime={handleUpdatePatientStartTime}
             onDuplicatePatient={handleDuplicatePatient}
             showHeader={false}
@@ -438,6 +472,7 @@ export default function PlanningPage() {
           : staffMembers}
         editingPatient={editingPatient}
         onUpdate={handleUpdatePatient}
+        onUpdateActionDuration={handleUpdateActionDuration}
       />
 
       {notification && (

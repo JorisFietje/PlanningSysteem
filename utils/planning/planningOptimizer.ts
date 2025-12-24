@@ -98,7 +98,7 @@ export async function optimizeDayPlanning(
       const [slotHours, slotMinutes] = slot.split(':').map(Number)
       const slotStartMinutes = slotHours * 60 + slotMinutes
       const endMinutes = slotStartMinutes + totalDuration
-      const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60
+      const closingTime = DEPARTMENT_CONFIG.END_MINUTES
       
       if (endMinutes > closingTime) continue
 

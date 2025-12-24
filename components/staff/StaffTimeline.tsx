@@ -22,9 +22,12 @@ interface StaffActivity {
 }
 
 export default function StaffTimeline({ patients, selectedDate, staffMembers }: StaffTimelineProps) {
-  const startHour = DEPARTMENT_CONFIG.START_HOUR
-  const endHour = DEPARTMENT_CONFIG.END_HOUR
-  const totalMinutes = (endHour - startHour) * 60
+  const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
+  const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
+  const startHour = Math.floor(startMinutes / 60)
+  const endHour = Math.floor(endMinutes / 60)
+  const endMinuteRemainder = endMinutes % 60
+  const totalMinutes = endMinutes - startMinutes
 
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
@@ -41,7 +44,10 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   // - Include: setup (aanbrengen), protocol_check, flush (only if no observation), pc_switch, removal
   // - First assign all setups respecting max patients; then assign other actions at their times
   // Use useMemo to prevent recreating scheduler on every render
-  const scheduler = useMemo(() => new StaffScheduler(availableStaff, dayOfWeek), [availableStaff, dayOfWeek])
+  const scheduler = useMemo(
+    () => new StaffScheduler(availableStaff, dayOfWeek, undefined, { suppressLogs: true }),
+    [availableStaff, dayOfWeek]
+  )
   
   patients.forEach(patient => {
     const [hours, minutes] = patient.startTime.split(':').map(Number)
@@ -125,7 +131,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
       }
       
       if (assignedStaff && assignedStaff !== 'GEEN') {
-        const closingMinutes = endHour * 60
+        const closingMinutes = endMinutes
         if (scheduledStartMinutes < closingMinutes) {
           activities.push({
             staff: assignedStaff,
@@ -176,7 +182,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
     const workload: { [key: number]: number } = {}
     
     // For each minute, count how many unique nurses are busy
-    for (let minute = startHour * 60; minute < endHour * 60; minute++) {
+    for (let minute = startMinutes; minute < endMinutes; minute++) {
       const busyNursesSet = new Set<string>()
       
       activities.forEach(activity => {
@@ -335,6 +341,15 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                               </div>
                             </div>
                           ))}
+                          {endMinuteRemainder > 0 && (
+                            <div className="flex-1 border-r border-slate-200 relative">
+                              <div className="absolute top-1 left-0 right-0 text-center">
+                                <span className="text-[9px] font-semibold text-slate-600">
+                                  {endHour.toString().padStart(2, '0')}:{endMinuteRemainder.toString().padStart(2, '0')}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                       
@@ -345,6 +360,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                           {Array.from({ length: endHour - startHour }).map((_, i) => (
                             <div key={i} className="flex-1 border-r border-slate-200" />
                           ))}
+                          {endMinuteRemainder > 0 && (
+                            <div className="flex-1 border-r border-slate-200" />
+                          )}
                         </div>
                         
                         {/* Gray overlay for non-working hours */}
@@ -359,7 +377,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                         
                         {/* Activity blocks - colors only, no text */}
                         {staffTasks.map((activity, idx) => {
-                          const startOffset = ((activity.startMinutes - (startHour * 60)) / totalMinutes) * 100
+                          const startOffset = ((activity.startMinutes - startMinutes) / totalMinutes) * 100
                           const width = (activity.duration / totalMinutes) * 100
                           
                           return (
@@ -416,6 +434,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
             {Array.from({ length: endHour - startHour }).map((_, i) => (
               <div key={i} className="flex-1 border-r border-slate-300" />
             ))}
+            {endMinuteRemainder > 0 && (
+              <div className="flex-1 border-r border-slate-300" />
+            )}
           </div>
           
           {/* Capacity line */}
@@ -429,7 +450,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           {/* Occupancy bars */}
           {Object.entries(chairOccupancy).map(([minute, count]) => {
             const minuteNum = parseInt(minute)
-            const xPos = ((minuteNum - (startHour * 60)) / totalMinutes) * 100
+            const xPos = ((minuteNum - startMinutes) / totalMinutes) * 100
             const height = (count / DEPARTMENT_CONFIG.TOTAL_CHAIRS) * 100
             const isOverCapacity = count > DEPARTMENT_CONFIG.TOTAL_CHAIRS
             
@@ -450,6 +471,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           {Array.from({ length: endHour - startHour + 1 }).map((_, i) => (
             <span key={i}>{(startHour + i).toString().padStart(2, '0')}:00</span>
           ))}
+          {endMinuteRemainder > 0 && (
+            <span>{endHour.toString().padStart(2, '0')}:{endMinuteRemainder.toString().padStart(2, '0')}</span>
+          )}
         </div>
         <div className="flex justify-center gap-3 mt-2 text-[10px]">
           <div className="flex items-center gap-1">
@@ -476,6 +500,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
             {Array.from({ length: endHour - startHour }).map((_, i) => (
               <div key={i} className="flex-1 border-r border-slate-300" />
             ))}
+            {endMinuteRemainder > 0 && (
+              <div className="flex-1 border-r border-slate-300" />
+            )}
           </div>
           
           {/* Capacity line */}
@@ -489,7 +516,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           {/* Workload bars */}
           {Object.entries(staffWorkload).map(([minute, count]) => {
             const minuteNum = parseInt(minute)
-            const xPos = ((minuteNum - (startHour * 60)) / totalMinutes) * 100
+            const xPos = ((minuteNum - startMinutes) / totalMinutes) * 100
             const height = (count / maxNurses) * 100
             const isOverCapacity = count > maxNurses
             const percentage = (count / maxNurses) * 100
@@ -511,6 +538,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           {Array.from({ length: endHour - startHour + 1 }).map((_, i) => (
             <span key={i}>{(startHour + i).toString().padStart(2, '0')}:00</span>
           ))}
+          {endMinuteRemainder > 0 && (
+            <span>{endHour.toString().padStart(2, '0')}:{endMinuteRemainder.toString().padStart(2, '0')}</span>
+          )}
         </div>
         <div className="flex justify-center gap-3 mt-2 text-[10px]">
           <div className="flex items-center gap-1">

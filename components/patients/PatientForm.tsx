@@ -68,7 +68,7 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
   const endInMinutes = breakdown ? startInMinutes + breakdown.totalTime : startInMinutes
   const endHours = Math.floor(endInMinutes / 60)
   const endMins = endInMinutes % 60
-  const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60 // 16:00
+  const closingTime = DEPARTMENT_CONFIG.END_MINUTES
   const endsAfterClosing = endInMinutes > closingTime
 
   return (
@@ -237,7 +237,7 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
               </div>
               {endsAfterClosing && (
                 <div className="mt-2 pt-2 border-t border-red-400 bg-red-100 -mx-2 -mb-2 px-2 py-2 rounded-b-lg">
-                  <p className="text-red-800 font-bold text-xs"> LET OP: Eindtijd ({endHours}:{String(endMins).padStart(2, '0')}) is NA sluitingstijd (16:00)!</p>
+                  <p className="text-red-800 font-bold text-xs"> LET OP: Eindtijd ({endHours}:{String(endMins).padStart(2, '0')}) is NA sluitingstijd (16:30)!</p>
                   <p className="text-red-700 text-xs mt-1">Kies een eerdere starttijd of kortere behandeling.</p>
                 </div>
               )}
@@ -262,7 +262,7 @@ export default function PatientForm({ onSubmit, selectedDate, staffMembers }: Pa
             availableStaff.length === 0 
               ? 'Geen verpleegkundigen beschikbaar op deze dag' 
               : endsAfterClosing 
-                ? 'Behandeling eindigt na sluitingstijd (16:00)' 
+                ? 'Behandeling eindigt na sluitingstijd (16:30)' 
                 : ''
           }
         >

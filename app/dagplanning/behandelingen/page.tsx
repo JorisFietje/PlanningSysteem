@@ -10,6 +10,7 @@ import { updatePatient } from '@/features/patients/patientService'
 import { getDayOfWeekFromDate } from '@/types'
 import { useNotifications } from '@/hooks/useNotifications'
 import Notification from '@/components/common/Notification'
+import { updateActionDuration } from '@/features/patients/actionService'
 
 export default function BehandelingenPage() {
   const {
@@ -58,6 +59,17 @@ export default function BehandelingenPage() {
     }
   }
 
+  const handleUpdateActionDuration = async (_patientId: string, actionId: string, duration: number) => {
+    const ok = await updateActionDuration(actionId, duration)
+    if (!ok) {
+      showNotification('Fout bij aanpassen handeling', 'warning')
+      return false
+    }
+    await fetchPatients()
+    showNotification('Handeling aangepast', 'success')
+    return true
+  }
+
   const day = getDayOfWeekFromDate(selectedDate)
   const assignedNames = staffSchedule[day]
 
@@ -81,6 +93,7 @@ export default function BehandelingenPage() {
           : staffMembers}
         editingPatient={editingPatient}
         onUpdate={handleUpdatePatient}
+        onUpdateActionDuration={handleUpdateActionDuration}
       />
 
       {notification && (
@@ -93,4 +106,3 @@ export default function BehandelingenPage() {
     </>
   )
 }
-

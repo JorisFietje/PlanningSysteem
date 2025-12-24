@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useId, useRef, useEffect } from 'react'
+import { DEPARTMENT_CONFIG } from '@/types'
 
 interface TimeSlotPickerProps {
   value: string
@@ -13,11 +14,11 @@ export default function TimeSlotPicker({ value, onChange, label }: TimeSlotPicke
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   
-  // Generate time slots in 15-minute intervals from 08:00 to 16:00
+  // Generate time slots in 15-minute intervals from 08:00 to 16:30
   const generateTimeSlots = () => {
     const slots = []
-    const startMinutes = 8 * 60 // 08:00
-    const endMinutes = 16 * 60 // 16:00
+    const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
+    const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
     
     for (let minutes = startMinutes; minutes <= endMinutes; minutes += 15) {
       const hour = Math.floor(minutes / 60)
@@ -134,4 +135,3 @@ export default function TimeSlotPicker({ value, onChange, label }: TimeSlotPicke
     </div>
   )
 }
-

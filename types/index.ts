@@ -83,6 +83,8 @@ export const DAY_LABELS: Record<DayOfWeek, string> = {
 export const DEPARTMENT_CONFIG = {
   START_HOUR: 8,
   END_HOUR: 16,
+  START_MINUTES: 8 * 60,
+  END_MINUTES: 16 * 60 + 30,
   TOTAL_CHAIRS: 14, // Totaal aantal stoelen op de afdeling (MAXIMUM CAPACITEIT)
   STAFF_COUNT: 3, // Aantal verpleegkundigen PER DAG (altijd 3)
   MAX_CONCURRENT_INFUSIONS: 3, // Max 3 gelijktijdige aanprik momenten (1 per verpleegkundige)

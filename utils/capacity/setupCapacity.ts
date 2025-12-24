@@ -40,7 +40,7 @@ export class SetupCapacityTracker {
     // Generate all possible 30-minute slots from the given time onwards
     const [hours, minutes] = fromTime.split(':').map(Number)
     let currentMinutes = hours * 60 + minutes
-    const closingMinutes = DEPARTMENT_CONFIG.END_HOUR * 60 - 120 // Stop 2 hours before closing
+    const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES - 120 // Stop 2 hours before closing
 
     while (currentMinutes < closingMinutes) {
       // Move to next 30-minute slot
@@ -84,4 +84,3 @@ export class SetupCapacityTracker {
     this.setupsPerSlot.clear()
   }
 }
-

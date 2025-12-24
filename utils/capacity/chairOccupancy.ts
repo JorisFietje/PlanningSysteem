@@ -32,16 +32,16 @@ export class ChairOccupancyTracker {
 
   /**
    * Check if adding a patient would exceed chair capacity
-   * ALSO checks if patient would finish BEFORE closing time (16:00)
+   * ALSO checks if patient would finish BEFORE closing time (16:30)
    */
   public canAddPatient(startTime: string, duration: number): boolean {
     const startMinutes = this.timeToMinutes(startTime)
     const endMinutes = startMinutes + duration
-    const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60 // 16:00 = 960 minutes
+    const closingTime = DEPARTMENT_CONFIG.END_MINUTES
     
     // Check if treatment would end AFTER closing time
     if (endMinutes > closingTime) {
-      console.log(`⚠️ Patient starting at ${startTime} with ${duration}min would end at ${Math.floor(endMinutes/60)}:${String(endMinutes%60).padStart(2,'0')}, after closing (16:00)`)
+      console.log(`⚠️ Patient starting at ${startTime} with ${duration}min would end at ${Math.floor(endMinutes/60)}:${String(endMinutes%60).padStart(2,'0')}, after closing (16:30)`)
       return false // Treatment would extend past closing time
     }
     
@@ -81,11 +81,11 @@ export class ChairOccupancyTracker {
 
   /**
    * Find the next available time slot that can fit a patient with given duration
-   * Ensures patient finishes BEFORE closing time (16:00)
+   * Ensures patient finishes BEFORE closing time (16:30)
    */
   public findNextAvailableSlot(preferredStartTime: string, duration: number): string | null {
     const startMinutes = this.timeToMinutes(preferredStartTime)
-    const closingTime = DEPARTMENT_CONFIG.END_HOUR * 60 // 16:00 = 960 minutes
+    const closingTime = DEPARTMENT_CONFIG.END_MINUTES
     
     // Latest possible start time = closing time - duration
     const latestStart = closingTime - duration
@@ -117,4 +117,3 @@ export class ChairOccupancyTracker {
     return null // No available slot found
   }
 }
-

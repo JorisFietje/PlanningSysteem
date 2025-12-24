@@ -25,10 +25,17 @@ export class StaffScheduler {
   private staffMembers: StaffMember[]
   private selectedDay: DayOfWeek
   private coordinatorName?: string
+  private suppressLogs: boolean
 
-  constructor(staffMembers: StaffMember[], selectedDay: DayOfWeek, coordinatorName?: string) {
+  constructor(
+    staffMembers: StaffMember[],
+    selectedDay: DayOfWeek,
+    coordinatorName?: string,
+    options?: { suppressLogs?: boolean }
+  ) {
     this.selectedDay = selectedDay
     this.coordinatorName = coordinatorName
+    this.suppressLogs = Boolean(options?.suppressLogs)
     
     // Beschikbaarheid komt uit het weekrooster; gebruik alle medewerkers
     const availableStaffForDay = staffMembers
@@ -189,7 +196,9 @@ export class StaffScheduler {
     
     if (availableStaff.length === 0) {
       // NO STAFF AVAILABLE AT ALL - this patient cannot be scheduled
-      console.error(`❌ GEEN VERPLEEGKUNDIGEN BESCHIKBAAR voor ${startTime} - alle verpleegkundigen hebben hun limiet bereikt`)
+      if (!this.suppressLogs) {
+        console.error(`❌ GEEN VERPLEEGKUNDIGEN BESCHIKBAAR voor ${startTime} - alle verpleegkundigen hebben hun limiet bereikt`)
+      }
       // Return a dummy result - caller should handle this
       return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
     }
@@ -212,7 +221,9 @@ export class StaffScheduler {
     
     // Check if adjusted start would exceed staff's work time
     if (fallbackStaff.maxWorkTime && adjustedStart >= fallbackStaff.maxWorkTime) {
-      console.error(`❌ ${fallbackStaff.staff} kan niet meer werken na ${Math.floor(fallbackStaff.maxWorkTime / 60) + 8}:00`)
+      if (!this.suppressLogs) {
+        console.error(`❌ ${fallbackStaff.staff} kan niet meer werken na ${Math.floor(fallbackStaff.maxWorkTime / 60) + 8}:00`)
+      }
       return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
     }
     
@@ -285,7 +296,9 @@ export class StaffScheduler {
       
       if (candidateStaff.length === 0) {
         // NO STAFF can do this action (all are outside working hours or excluded)
-        console.error(`❌ GEEN VERPLEEGKUNDIGEN beschikbaar voor ${actionType} om ${requestedTime} - actie valt buiten werktijden`)
+        if (!this.suppressLogs) {
+          console.error(`❌ GEEN VERPLEEGKUNDIGEN beschikbaar voor ${actionType} om ${requestedTime} - actie valt buiten werktijden`)
+        }
         return { staff: 'GEEN', actualStartTime: requestedTime, wasDelayed: true }
       }
       

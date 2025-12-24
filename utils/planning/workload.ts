@@ -3,19 +3,19 @@ import { calculateTotalTreatmentTime } from '../patients/actionGenerator'
 
 export function calculateWorkloadByTimeSlot(patients: Patient[]): WorkloadSlot[] {
   const slots: WorkloadSlot[] = []
-  const startHour = DEPARTMENT_CONFIG.START_HOUR
-  const endHour = DEPARTMENT_CONFIG.END_HOUR
+  const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
+  const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
 
   // Create 15-minute slots
-  for (let h = startHour; h < endHour; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      const time = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
-      slots.push({
-        time,
-        count: 0,
-        patients: []
-      })
-    }
+  for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
+    const hour = Math.floor(minutes / 60)
+    const min = minutes % 60
+    const time = `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`
+    slots.push({
+      time,
+      count: 0,
+      patients: []
+    })
   }
 
   // Calculate workload
@@ -87,7 +87,7 @@ export function generateOptimizationSuggestions(
       .reduce((actionSum, a) => actionSum + (a.actualDuration || a.duration), 0)
   }, 0)
   
-  const workDayMinutes = (DEPARTMENT_CONFIG.END_HOUR - DEPARTMENT_CONFIG.START_HOUR) * 60
+  const workDayMinutes = DEPARTMENT_CONFIG.END_MINUTES - DEPARTMENT_CONFIG.START_MINUTES
   const availableStaffMinutes = STAFF_COUNT * workDayMinutes
   const staffUtilization = (totalWorkMinutes / availableStaffMinutes) * 100
   
@@ -148,8 +148,8 @@ export function generateOptimizationSuggestions(
   const imbalance = Math.abs(morningPatients - afternoonPatients)
   
   if (imbalance > patients.length * 0.3) {
-    const busierPeriod = morningPatients > afternoonPatients ? 'ochtend (08:00-12:00)' : 'middag (13:00-16:00)'
-    const quieterPeriod = morningPatients > afternoonPatients ? 'middag (13:00-16:00)' : 'ochtend (08:00-12:00)'
+    const busierPeriod = morningPatients > afternoonPatients ? 'ochtend (08:00-12:00)' : 'middag (13:00-16:30)'
+    const quieterPeriod = morningPatients > afternoonPatients ? 'middag (13:00-16:30)' : 'ochtend (08:00-12:00)'
     const busierCount = Math.max(morningPatients, afternoonPatients)
     const quieterCount = Math.min(morningPatients, afternoonPatients)
     
