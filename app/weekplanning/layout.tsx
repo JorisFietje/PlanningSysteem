@@ -81,6 +81,10 @@ const emptyCoordinators: Record<DayOfWeek, string | null> = {
 export default function WeekplanningLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('weekplanningSelectedWeekStart')
+      if (stored) return stored
+    }
     const today = new Date()
     const day = today.getDay()
     const diff = today.getDate() - day + (day === 0 ? -6 : 1)
@@ -112,6 +116,11 @@ export default function WeekplanningLayout({ children }: { children: ReactNode }
     }
     return dates
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('weekplanningSelectedWeekStart', selectedWeekStart)
+  }, [selectedWeekStart])
 
   const getWeekEndDate = (weekStart: string): string => {
     const start = new Date(weekStart + 'T00:00:00')

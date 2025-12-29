@@ -28,7 +28,7 @@ const navTree: NavSection[] = [
       { label: 'Planning', href: '/dagplanning/planning' },
       { label: 'Behandelingen', href: '/dagplanning/behandelingen' },
       { label: 'Handelingen Overzicht', href: '/dagplanning/medewerkers' },
-      { label: 'Analyse', href: '/dagplanning/analyse' }
+      { label: 'Dashboard', href: '/dagplanning/analyse' }
     ]
   },
   {

@@ -1,10 +1,9 @@
-import { Patient, WorkloadSlot, OptimizationSuggestion, DEPARTMENT_CONFIG } from '@/types'
+import { Patient, WorkloadSlot, OptimizationSuggestion, DEPARTMENT_CONFIG, getDepartmentHours } from '@/types'
 import { calculateTotalTreatmentTime } from '../patients/actionGenerator'
 
 export function calculateWorkloadByTimeSlot(patients: Patient[]): WorkloadSlot[] {
   const slots: WorkloadSlot[] = []
-  const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
-  const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
+  const { startMinutes, endMinutes } = getDepartmentHours()
 
   // Create 15-minute slots
   for (let minutes = startMinutes; minutes < endMinutes; minutes += 15) {
@@ -87,7 +86,8 @@ export function generateOptimizationSuggestions(
       .reduce((actionSum, a) => actionSum + (a.actualDuration || a.duration), 0)
   }, 0)
   
-  const workDayMinutes = DEPARTMENT_CONFIG.END_MINUTES - DEPARTMENT_CONFIG.START_MINUTES
+  const { startMinutes: workDayStart, endMinutes: workDayEnd } = getDepartmentHours()
+  const workDayMinutes = workDayEnd - workDayStart
   const availableStaffMinutes = STAFF_COUNT * workDayMinutes
   const staffUtilization = (totalWorkMinutes / availableStaffMinutes) * 100
   

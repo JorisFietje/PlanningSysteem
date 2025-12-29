@@ -1,4 +1,4 @@
-import { DEPARTMENT_CONFIG } from '@/types'
+import { DEPARTMENT_CONFIG, getDepartmentHours } from '@/types'
 
 interface PatientSchedule {
   startTime: string
@@ -37,7 +37,7 @@ export class ChairOccupancyTracker {
   public canAddPatient(startTime: string, duration: number): boolean {
     const startMinutes = this.timeToMinutes(startTime)
     const endMinutes = startMinutes + duration
-    const closingTime = DEPARTMENT_CONFIG.END_MINUTES
+    const { endMinutes: closingTime } = getDepartmentHours()
     
     // Check if treatment would end AFTER closing time
     if (endMinutes > closingTime) {
@@ -80,12 +80,27 @@ export class ChairOccupancyTracker {
   }
 
   /**
+   * Get average occupancy across a time range
+   */
+  public getAverageOccupancyForRange(startTime: string, duration: number): number {
+    if (duration <= 0) return 0
+    const startMinutes = this.timeToMinutes(startTime)
+    let total = 0
+    let count = 0
+    for (let minute = startMinutes; minute < startMinutes + duration; minute++) {
+      total += this.occupancy.get(minute) || 0
+      count += 1
+    }
+    return count > 0 ? total / count : 0
+  }
+
+  /**
    * Find the next available time slot that can fit a patient with given duration
    * Ensures patient finishes BEFORE closing time (16:30)
    */
   public findNextAvailableSlot(preferredStartTime: string, duration: number): string | null {
     const startMinutes = this.timeToMinutes(preferredStartTime)
-    const closingTime = DEPARTMENT_CONFIG.END_MINUTES
+    const { endMinutes: closingTime } = getDepartmentHours()
     
     // Latest possible start time = closing time - duration
     const latestStart = closingTime - duration

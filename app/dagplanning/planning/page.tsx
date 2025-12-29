@@ -49,6 +49,7 @@ export default function PlanningPage() {
   })
 
   const { notification, showNotification, closeNotification } = useNotifications()
+  const [agreedMaxPatients, setAgreedMaxPatients] = useState<number | null>(null)
 
   useEffect(() => {
     fetchPatients()
@@ -58,6 +59,32 @@ export default function PlanningPage() {
     const calculatedWorkload = calculateWorkloadByTimeSlot(patients)
     setWorkload(calculatedWorkload)
   }, [patients, setWorkload])
+
+  useEffect(() => {
+    let isMounted = true
+    const loadAgreedMax = async () => {
+      try {
+        const monday = getMondayOfWeek(selectedDate)
+        const response = await fetch(`/api/weekplan?weekStart=${monday}`)
+        if (!response.ok) {
+          if (isMounted) setAgreedMaxPatients(null)
+          return
+        }
+        const data = await response.json()
+        const match = data?.dayCapacities?.find((entry: any) => entry.date === selectedDate)
+        if (isMounted) {
+          setAgreedMaxPatients(match?.agreedMaxPatients ?? null)
+        }
+      } catch (error) {
+        console.error('Failed to load agreed max patients:', error)
+        if (isMounted) setAgreedMaxPatients(null)
+      }
+    }
+    loadAgreedMax()
+    return () => {
+      isMounted = false
+    }
+  }, [selectedDate])
 
   const syncWeekPlanTreatment = async (
     medicationId: string,
@@ -371,6 +398,45 @@ export default function PlanningPage() {
     return true
   }
 
+  const handleDeleteAllPatients = () => {
+    if (patients.length === 0) {
+      showNotification('Geen behandelingen om te verwijderen', 'info')
+      return
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: 'Alle behandelingen verwijderen',
+      message: 'Weet u zeker dat u alle behandelingen van deze dag wilt verwijderen? Dit kan niet ongedaan gemaakt worden.',
+      variant: 'danger',
+      confirmText: 'Alles verwijderen',
+      onConfirm: async () => {
+        try {
+          const counts = patients.reduce<Record<string, number>>((acc, patient) => {
+            const key = `${patient.medicationType}__${patient.treatmentNumber}`
+            acc[key] = (acc[key] || 0) + 1
+            return acc
+          }, {})
+          const response = await fetch(`/api/patients?date=${selectedDate}`, { method: 'DELETE' })
+          if (!response.ok) {
+            throw new Error('Delete failed')
+          }
+          await fetchPatients()
+          await Promise.all(
+            Object.entries(counts).map(([key, qty]) => {
+              const [medicationId, treatmentNumber] = key.split('__')
+              return syncWeekPlanTreatment(medicationId, parseInt(treatmentNumber, 10), -qty)
+            })
+          )
+          showNotification('Alle behandelingen verwijderd', 'success')
+        } catch (error) {
+          console.error('Failed to delete all patients:', error)
+          showNotification('Fout bij verwijderen behandelingen', 'warning')
+        }
+      }
+    })
+  }
+
   const handleDuplicatePatient = async (patient: Patient) => {
     const infusionAction = patient.actions.find(a => a.type === 'infusion')
     const customInfusionMinutes = infusionAction ? infusionAction.duration : undefined
@@ -433,6 +499,14 @@ export default function PlanningPage() {
                 <span className="font-medium">{patients.length} patiënt{patients.length !== 1 ? 'en' : ''}</span>
               </div>
             )}
+            {agreedMaxPatients !== null && (
+              <div className="flex items-center gap-1 text-xs text-slate-600 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="font-medium">Afgesproken max: {agreedMaxPatients}</span>
+              </div>
+            )}
             <button
               onClick={() => setIsPatientModalOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-semibold transition-colors shadow-sm text-sm"
@@ -441,6 +515,15 @@ export default function PlanningPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               <span>Nieuwe Behandeling</span>
+            </button>
+            <button
+              onClick={handleDeleteAllPatients}
+              className="flex items-center gap-2 px-4 py-2 border border-rose-200 text-rose-600 rounded-lg font-semibold transition-colors shadow-sm text-sm hover:bg-rose-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              <span>Alles verwijderen</span>
             </button>
           </div>
         </div>

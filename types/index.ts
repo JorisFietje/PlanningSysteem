@@ -84,7 +84,7 @@ export const DAY_LABELS: Record<DayOfWeek, string> = {
 export const DEPARTMENT_CONFIG = {
   START_HOUR: 8,
   END_HOUR: 16,
-  START_MINUTES: 8 * 60,
+  START_MINUTES: 8 * 60 + 30,
   END_MINUTES: 16 * 60 + 30,
   TOTAL_CHAIRS: 14, // Totaal aantal stoelen op de afdeling (MAXIMUM CAPACITEIT)
   STAFF_COUNT: 3, // Aantal verpleegkundigen PER DAG (altijd 3)
@@ -94,6 +94,52 @@ export const DEPARTMENT_CONFIG = {
 }
 
 export const DAYCO_PATIENTS_DEFAULT = 5
+
+const DEPARTMENT_HOURS_STORAGE_KEY = 'departmentHours'
+
+export type DepartmentHours = {
+  startMinutes: number
+  endMinutes: number
+}
+
+const clampToFiveMinutes = (minutes: number) => {
+  return Math.round(minutes / 5) * 5
+}
+
+export function getDepartmentHours(): DepartmentHours {
+  if (typeof window === 'undefined') {
+    return { startMinutes: DEPARTMENT_CONFIG.START_MINUTES, endMinutes: DEPARTMENT_CONFIG.END_MINUTES }
+  }
+
+  const stored = localStorage.getItem(DEPARTMENT_HOURS_STORAGE_KEY)
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored)
+      const rawStart = typeof parsed.startMinutes === 'number' ? parsed.startMinutes : DEPARTMENT_CONFIG.START_MINUTES
+      const rawEnd = typeof parsed.endMinutes === 'number' ? parsed.endMinutes : DEPARTMENT_CONFIG.END_MINUTES
+      const startMinutes = Math.min(rawStart, rawEnd - 5)
+      const endMinutes = Math.max(rawEnd, rawStart + 5)
+      return {
+        startMinutes: clampToFiveMinutes(startMinutes),
+        endMinutes: clampToFiveMinutes(endMinutes)
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return { startMinutes: DEPARTMENT_CONFIG.START_MINUTES, endMinutes: DEPARTMENT_CONFIG.END_MINUTES }
+}
+
+export function saveDepartmentHours(startMinutes: number, endMinutes: number): void {
+  if (typeof window === 'undefined') return
+  const safeStart = clampToFiveMinutes(Math.min(startMinutes, endMinutes - 5))
+  const safeEnd = clampToFiveMinutes(Math.max(endMinutes, startMinutes + 5))
+  localStorage.setItem(
+    DEPARTMENT_HOURS_STORAGE_KEY,
+    JSON.stringify({ startMinutes: safeStart, endMinutes: safeEnd })
+  )
+}
 
 export function getDaycoPatientsCount(): number {
   if (typeof window === 'undefined') return DAYCO_PATIENTS_DEFAULT

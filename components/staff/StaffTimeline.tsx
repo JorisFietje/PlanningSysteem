@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate } from '@/types'
+import { useMemo, useRef, useState } from 'react'
+import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate, getDepartmentHours } from '@/types'
 import { getMedicationById } from '@/types/medications'
 import { calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
 
@@ -21,8 +21,7 @@ interface StaffActivity {
 }
 
 export default function StaffTimeline({ patients, selectedDate, staffMembers }: StaffTimelineProps) {
-  const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
-  const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
+  const { startMinutes, endMinutes } = getDepartmentHours()
   const startHour = Math.floor(startMinutes / 60)
   const endHour = Math.floor(endMinutes / 60)
   const endMinuteRemainder = endMinutes % 60
@@ -34,63 +33,13 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   // Availability komt vanuit het weekrooster; toon alle medewerkers
   const availableStaff = staffMembers
 
-  // Calculate all activities
-  const activities: StaffActivity[] = []
-  
-  const staffAvailability = useMemo(() => {
-    return availableStaff.map(staff => ({
-      name: staff.name,
-      maxPatients: staff.maxPatients,
-      maxWorkTime: staff.maxWorkTime,
-      setupCount: 0,
-      totalWorkload: 0,
-      tasks: [] as { start: number; end: number }[]
-    }))
-  }, [availableStaff])
-
-  const canWorkUntil = (maxWorkTime: number | undefined, endMinutesValue: number) => {
-    if (!maxWorkTime) return true
-    return endMinutesValue <= startMinutes + maxWorkTime
-  }
-
-  const hasOverlap = (tasks: { start: number; end: number }[], start: number, end: number) => {
-    return tasks.some(task => start < task.end && end > task.start)
-  }
-
-  const assignSetupAtTime = (start: number, duration: number) => {
-    const end = start + duration
-    const candidates = staffAvailability.filter(staff =>
-      staff.setupCount < staff.maxPatients &&
-      canWorkUntil(staff.maxWorkTime, end) &&
-      !hasOverlap(staff.tasks, start, end)
-    )
-    if (candidates.length === 0) return null
-    const best = [...candidates].sort((a, b) => {
-      if (a.setupCount !== b.setupCount) return a.setupCount - b.setupCount
-      return a.totalWorkload - b.totalWorkload
-    })[0]
-    best.setupCount += 1
-    best.totalWorkload += duration
-    best.tasks.push({ start, end })
-    return best.name
-  }
-
-  const assignActionAtTime = (start: number, duration: number, excludeStaff?: string) => {
-    const end = start + duration
-    const candidates = staffAvailability.filter(staff =>
-      staff.name !== excludeStaff &&
-      canWorkUntil(staff.maxWorkTime, end) &&
-      !hasOverlap(staff.tasks, start, end)
-    )
-    if (candidates.length === 0) return null
-    const best = [...candidates].sort((a, b) => a.totalWorkload - b.totalWorkload)[0]
-    best.totalWorkload += duration
-    best.tasks.push({ start, end })
-    return best.name
-  }
-  
-  const sortedPatients = [...patients].sort((a, b) => a.startTime.localeCompare(b.startTime))
-  const setupStaffByPatientId: Record<string, string | undefined> = {}
+  const sortedPatients = useMemo(() => {
+    return [...patients].sort((a, b) => {
+      const timeDiff = a.startTime.localeCompare(b.startTime)
+      if (timeDiff !== 0) return timeDiff
+      return a.id.localeCompare(b.id)
+    })
+  }, [patients])
 
   const inferActionType = (action: Patient['actions'][number]) => {
     if (action.type) return action.type
@@ -106,127 +55,200 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
     return 'custom'
   }
 
-  sortedPatients.forEach(patient => {
-    const [hours, minutes] = patient.startTime.split(':').map(Number)
-    const patientStartMinutes = hours * 60 + minutes
-    const setupAction = patient.actions.find(action => inferActionType(action) === 'setup')
-    if (!setupAction) return
-    const setupStaff = assignSetupAtTime(patientStartMinutes, setupAction.duration)
-    if (!setupStaff) return
-    setupStaffByPatientId[patient.id] = setupStaff
-    activities.push({
-      staff: setupStaff,
-      startMinutes: patientStartMinutes,
-      duration: setupAction.actualDuration || setupAction.duration,
-      actionName: setupAction.name,
-      patientName: patient.name,
-      type: setupAction.type || 'setup'
-    })
-  })
+  const timelineRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const [hoveredTooltip, setHoveredTooltip] = useState<{
+    x: number
+    y: number
+    text: {
+      time: string
+      actionName: string
+      patientName: string
+      duration: number
+    }
+  } | null>(null)
 
-  sortedPatients.forEach(patient => {
-    const [hours, minutes] = patient.startTime.split(':').map(Number)
-    const patientStartMinutes = hours * 60 + minutes
-    let currentMinutes = patientStartMinutes
-    
-    // Track when infusion starts to position dependent actions that may specify offsets
-    let infusionStartMinutes = 0
-    let cumulativeMinutesForInfusion = 0
-    patient.actions.forEach(a => {
-      if (inferActionType(a) === 'infusion') {
-        infusionStartMinutes = patientStartMinutes + cumulativeMinutesForInfusion
+  const showTooltip = (activity: StaffActivity, target: HTMLElement) => {
+    const targetRect = target.getBoundingClientRect()
+    const tooltipWidth = 220
+    const tooltipHeight = 96
+    const padding = 12
+    const centerX = targetRect.left + targetRect.width / 2
+    const topY = targetRect.top - 8
+
+    const minX = padding + tooltipWidth / 2
+    const maxX = window.innerWidth - padding - tooltipWidth / 2
+    const clampedX = Math.min(Math.max(centerX, minX), maxX)
+
+    const minY = padding + tooltipHeight
+    const clampedY = Math.max(topY, minY)
+
+    setHoveredTooltip({
+      x: clampedX,
+      y: clampedY,
+      text: {
+        time: `${formatTime(activity.startMinutes)} - ${formatTime(activity.startMinutes + activity.duration)}`,
+        actionName: activity.actionName,
+        patientName: activity.patientName,
+        duration: activity.duration
       }
-      cumulativeMinutesForInfusion += a.duration
     })
-    
-    const medication = getMedicationById(patient.medicationType)
-    
-    // First pass assigned setup; now assign remaining actions
-    let checkCount = 0
-    let pcSwitchCount = 0
-    const isNurseAction = (actionType?: string, nurseFlag?: boolean, hasStaff?: boolean) => {
-      if (nurseFlag !== undefined) return nurseFlag
-      if (!actionType && hasStaff) return true
-      return (
-        actionType === 'setup' ||
-        actionType === 'protocol_check' ||
-        actionType === 'check' ||
-        actionType === 'flush' ||
-        actionType === 'removal' ||
-        actionType === 'custom_nurse'
+  }
+
+  const isValidStaffName = (name?: string | null) => {
+    if (!name || name === 'Systeem' || name === 'Geen') return false
+    return availableStaff.some(staff => staff.name === name)
+  }
+
+  const staffAllocation = useMemo(() => {
+    const staffOrder = new Map(availableStaff.map((staff, index) => [staff.name, index]))
+    const allocation = availableStaff.map(staff => ({
+      name: staff.name,
+      maxWorkTime: staff.maxWorkTime,
+      totalWorkload: 0,
+      tasks: [] as { start: number; end: number }[]
+    }))
+
+    const hasOverlap = (tasks: { start: number; end: number }[], start: number, end: number) => {
+      return tasks.some(task => start < task.end && end > task.start)
+    }
+
+    const canWorkUntil = (maxWorkTime: number | undefined, endMinutesValue: number) => {
+      if (!maxWorkTime) return true
+      return endMinutesValue <= startMinutes + maxWorkTime
+    }
+
+    const pickBest = <T extends { name: string; totalWorkload: number }>(list: T[]) => {
+      return list.reduce<T | null>((best, current) => {
+        if (!best) return current
+        if (current.totalWorkload < best.totalWorkload) return current
+        if (current.totalWorkload > best.totalWorkload) return best
+        const bestOrder = staffOrder.get(best.name) ?? 0
+        const currentOrder = staffOrder.get(current.name) ?? 0
+        return currentOrder < bestOrder ? current : best
+      }, null)
+    }
+
+    const assignStaff = (start: number, duration: number, preferred?: string | null) => {
+      const end = start + duration
+      const preferredStaff = preferred ? allocation.find(staff => staff.name === preferred) : null
+      if (
+        preferredStaff &&
+        canWorkUntil(preferredStaff.maxWorkTime, end) &&
+        !hasOverlap(preferredStaff.tasks, start, end)
+      ) {
+        preferredStaff.totalWorkload += duration
+        preferredStaff.tasks.push({ start, end })
+        return preferredStaff.name
+      }
+
+      const candidates = allocation.filter(staff =>
+        canWorkUntil(staff.maxWorkTime, end) &&
+        !hasOverlap(staff.tasks, start, end)
       )
-    }
-    
-    for (const action of patient.actions) {
-      let startMinutesForAction = currentMinutes
-      
-      const inferredType = inferActionType(action)
-      const hasStaff = Boolean(action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen')
+      if (candidates.length > 0) {
+        const best = pickBest(candidates)
+        if (!best) return null
+        best.totalWorkload += duration
+        best.tasks.push({ start, end })
+        return best.name
+      }
 
-      // Derive explicit times for actions with offsets relative to infusion start
-      if ((inferredType === 'pc_switch') && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
-        pcSwitchCount++
-        startMinutesForAction = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
-      }
-      if ((inferredType === 'check') && infusionStartMinutes > 0 && action.checkOffset !== undefined) {
-        startMinutesForAction = infusionStartMinutes + action.checkOffset
-      } else if ((inferredType === 'check') && infusionStartMinutes > 0 && medication?.checkInterval) {
-        checkCount++
-        startMinutesForAction = infusionStartMinutes + (checkCount * medication.checkInterval)
-      }
-      
-      // Exclusions
-      if (inferredType === 'infusion' || !isNurseAction(inferredType, action.nurseAction, hasStaff)) {
-        currentMinutes += action.duration
-        continue
-      }
-      
-      const actionStartHours = Math.floor(startMinutesForAction / 60)
-      const actionStartMins = startMinutesForAction % 60
-      const actionStartTime = `${actionStartHours.toString().padStart(2, '0')}:${actionStartMins.toString().padStart(2, '0')}`
-      
-      let assignedStaff: string | null = null
-      const scheduledStartMinutes = startMinutesForAction
-      const effectiveDuration = action.actualDuration || action.duration
-      
-      if (inferredType === 'setup') {
-        currentMinutes += action.duration
-        continue
-      } else if (inferredType === 'protocol_check') {
-        const setupStaffForPatient = setupStaffByPatientId[patient.id]
-        assignedStaff = assignActionAtTime(startMinutesForAction, effectiveDuration, setupStaffForPatient)
-        if (!assignedStaff && setupStaffForPatient) {
-          assignedStaff = assignActionAtTime(startMinutesForAction, effectiveDuration)
-        }
-      } else if (inferredType === 'flush' || inferredType === 'pc_switch' || inferredType === 'removal' || inferredType === 'check' || inferredType === 'custom_nurse') {
-        assignedStaff = assignActionAtTime(startMinutesForAction, effectiveDuration)
-      }
-      
-      if (assignedStaff && assignedStaff !== 'GEEN') {
-        const closingMinutes = endMinutes
-        if (scheduledStartMinutes < closingMinutes) {
-          activities.push({
-            staff: assignedStaff,
-            startMinutes: scheduledStartMinutes,
-            duration: effectiveDuration,
-            actionName: action.name,
-            patientName: patient.name,
-            type: inferredType || 'other'
-          })
-        }
-      }
-      
-      currentMinutes += action.duration
+      const fallback = pickBest(allocation)
+      if (!fallback) return null
+      fallback.totalWorkload += duration
+      fallback.tasks.push({ start, end })
+      return fallback.name
     }
-  })
 
-  // Group by staff member (only those working on selected day)
-  const staffActivities: { [key: string]: StaffActivity[] } = {}
-  availableStaff.forEach(staffMember => {
-    staffActivities[staffMember.name] = activities
-      .filter(a => a.staff === staffMember.name)
-      .sort((a, b) => a.startMinutes - b.startMinutes)
-  })
+    const assigned: StaffActivity[] = []
+
+    sortedPatients.forEach(patient => {
+      const [hours, minutes] = patient.startTime.split(':').map(Number)
+      const patientStartMinutes = hours * 60 + minutes
+      let currentMinutes = patientStartMinutes
+      
+      let infusionStartMinutes = 0
+      let cumulativeMinutesForInfusion = 0
+      patient.actions.forEach(a => {
+        if (inferActionType(a) === 'infusion') {
+          infusionStartMinutes = patientStartMinutes + cumulativeMinutesForInfusion
+        }
+        cumulativeMinutesForInfusion += a.duration
+      })
+      
+      const medication = getMedicationById(patient.medicationType)
+      
+      let checkCount = 0
+      let pcSwitchCount = 0
+      const isNurseAction = (actionType?: string, nurseFlag?: boolean, hasStaff?: boolean) => {
+        if (nurseFlag !== undefined) return nurseFlag
+        if (!actionType && hasStaff) return true
+        return (
+          actionType === 'setup' ||
+          actionType === 'protocol_check' ||
+          actionType === 'check' ||
+          actionType === 'flush' ||
+          actionType === 'removal' ||
+          actionType === 'custom_nurse'
+        )
+      }
+      
+      for (const action of patient.actions) {
+        let startMinutesForAction = currentMinutes
+        
+        const inferredType = inferActionType(action)
+        const hasStaff = Boolean(action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen')
+        const actionStaff = action.staff
+
+        if ((inferredType === 'pc_switch') && infusionStartMinutes > 0 && (action as any).checkOffset !== undefined) {
+          startMinutesForAction = infusionStartMinutes + (action as any).checkOffset
+        } else if ((inferredType === 'pc_switch') && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
+          pcSwitchCount++
+          startMinutesForAction = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
+        }
+        if ((inferredType === 'check') && infusionStartMinutes > 0 && (action as any).checkOffset !== undefined) {
+          startMinutesForAction = infusionStartMinutes + (action as any).checkOffset
+        } else if ((inferredType === 'check') && infusionStartMinutes > 0 && medication?.checkInterval) {
+          checkCount++
+          startMinutesForAction = infusionStartMinutes + (checkCount * medication.checkInterval)
+        }
+        
+        if (inferredType === 'infusion' || !isNurseAction(inferredType, action.nurseAction, hasStaff)) {
+          currentMinutes += action.duration
+          continue
+        }
+        
+        const scheduledStartMinutes = startMinutesForAction
+        const effectiveDuration = action.actualDuration || action.duration
+        const preferredStaff = isValidStaffName(actionStaff) ? actionStaff : null
+
+        const assignedStaff = assignStaff(scheduledStartMinutes, effectiveDuration, preferredStaff)
+        if (assignedStaff) {
+          const closingMinutes = endMinutes
+          if (scheduledStartMinutes < closingMinutes && scheduledStartMinutes + effectiveDuration > startMinutes) {
+            assigned.push({
+              staff: assignedStaff,
+              startMinutes: scheduledStartMinutes,
+              duration: effectiveDuration,
+              actionName: action.name,
+              patientName: patient.name,
+              type: inferredType || 'other'
+            })
+          }
+        }
+        
+        currentMinutes += action.duration
+      }
+    })
+
+    const grouped: { [key: string]: StaffActivity[] } = {}
+    allocation.forEach(member => {
+      grouped[member.name] = assigned
+        .filter(a => a.staff === member.name)
+        .sort((a, b) => a.startMinutes - b.startMinutes)
+    })
+    return { grouped, flat: assigned }
+  }, [availableStaff, sortedPatients, startMinutes, endMinutes])
 
   // Calculate chair occupancy over time
   const calculateChairOccupancy = () => {
@@ -249,6 +271,9 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
 
   const chairOccupancy = calculateChairOccupancy()
 
+  const staffActivities = staffAllocation.grouped
+  const allActivities = staffAllocation.flat
+
   // Calculate staff workload over time (how many unique nurses are busy at each minute)
   const calculateStaffWorkload = () => {
     const workload: { [key: number]: number } = {}
@@ -257,7 +282,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
     for (let minute = startMinutes; minute < endMinutes; minute++) {
       const busyNursesSet = new Set<string>()
       
-      activities.forEach(activity => {
+      allActivities.forEach(activity => {
         if (minute >= activity.startMinutes && minute < activity.startMinutes + activity.duration) {
           busyNursesSet.add(activity.staff)
         }
@@ -305,6 +330,16 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
     const m = minutes % 60
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
   }
+
+  const quarterSlots = useMemo(() => {
+    const slotCount = Math.max(0, Math.floor(totalMinutes / 15))
+    return Array.from({ length: slotCount }, (_, index) => startMinutes + index * 15)
+  }, [startMinutes, totalMinutes])
+
+  const halfHourLabels = useMemo(() => {
+    const labelCount = Math.max(1, Math.floor(totalMinutes / 30))
+    return Array.from({ length: labelCount }, (_, index) => startMinutes + index * 30)
+  }, [startMinutes, totalMinutes])
 
   if (availableStaff.length === 0) {
     return (
@@ -380,7 +415,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                   <h3 className="font-bold text-sm text-slate-900">
                     {staffMember.name}
                     <span className="text-[10px] text-slate-500 ml-1.5">
-                      (max {staffMember.maxPatients} patiënten{staffMember.maxWorkTime ? `, tot ${Math.floor(staffMember.maxWorkTime / 60) + 8}:00` : ''})
+                      (max {staffMember.maxPatients} patiënten{staffMember.maxWorkTime ? `, tot ${formatTime(startMinutes + staffMember.maxWorkTime)}` : ''})
                     </span>
                   </h3>
                   <div className="flex gap-3 text-[10px] text-slate-600 mt-0.5">
@@ -404,39 +439,38 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                 <>
                   {/* Compact timetable - colors only */}
                   <div className="mt-2 relative" style={{ zIndex: 1 }}>
-                    <div className="relative bg-white rounded-lg border border-slate-200 shadow-sm overflow-visible" style={{ zIndex: 1 }}>
+                    <div
+                      className="relative bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden"
+                      style={{ zIndex: 1 }}
+                      ref={(el) => {
+                        timelineRefs.current[staffMember.name] = el
+                      }}
+                    >
                       {/* Compact timeline header */}
                       <div className="relative h-8 bg-slate-50 border-b border-slate-200" style={{ zIndex: 1 }}>
-                        <div className="absolute inset-0 flex">
-                          {Array.from({ length: endHour - startHour }).map((_, i) => (
-                            <div key={i} className="flex-1 border-r border-slate-200 relative">
+                        <div className="absolute inset-0 flex pointer-events-none">
+                          {halfHourLabels.map((labelMinutes, index) => (
+                            <div key={labelMinutes} className="flex-1 border-r border-slate-200 relative">
                               <div className="absolute top-1 left-0 right-0 text-center">
-                                <span className="text-[9px] font-semibold text-slate-600">{(startHour + i).toString().padStart(2, '0')}:00</span>
-                              </div>
-                            </div>
-                          ))}
-                          {endMinuteRemainder > 0 && (
-                            <div className="flex-1 border-r border-slate-200 relative">
-                              <div className="absolute top-1 left-0 right-0 text-center">
-                                <span className="text-[9px] font-semibold text-slate-600">
-                                  {endHour.toString().padStart(2, '0')}:{endMinuteRemainder.toString().padStart(2, '0')}
+                                <span className={`text-[9px] font-semibold ${index % 2 === 0 ? 'text-slate-600' : 'text-slate-400'}`}>
+                                  {formatTime(labelMinutes)}
                                 </span>
                               </div>
                             </div>
-                          )}
+                          ))}
                         </div>
                       </div>
                       
                       {/* Main timeline area - smaller */}
                       <div className="relative h-10 bg-white overflow-visible" style={{ zIndex: 1 }}>
                         {/* Hour grid lines */}
-                        <div className="absolute inset-0 flex">
-                          {Array.from({ length: endHour - startHour }).map((_, i) => (
-                            <div key={i} className="flex-1 border-r border-slate-200" />
+                        <div className="absolute inset-0 flex pointer-events-none">
+                          {quarterSlots.map((slotMinutes, index) => (
+                            <div
+                              key={slotMinutes}
+                              className={`flex-1 border-r ${index % 2 === 0 ? 'border-slate-200' : 'border-slate-100'}`}
+                            />
                           ))}
-                          {endMinuteRemainder > 0 && (
-                            <div className="flex-1 border-r border-slate-200" />
-                          )}
                         </div>
                         
                         {/* Gray overlay for non-working hours */}
@@ -449,34 +483,30 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                           />
                         )}
                         
-                        {/* Activity blocks - colors only, no text */}
-                        {staffTasks.map((activity, idx) => {
-                          const startOffset = ((activity.startMinutes - startMinutes) / totalMinutes) * 100
-                          const width = (activity.duration / totalMinutes) * 100
-                          
-                          return (
-                            <div
-                              key={idx}
-                              className={`absolute top-1 bottom-1 ${getActivityColor(activity.type)} ${getActivityBorder(activity.type)} border rounded transition-all cursor-pointer group hover:shadow-lg`}
-                              style={{
-                                left: `${startOffset}%`,
-                                width: `${Math.max(width, 0.3)}%`,
-                                zIndex: 10,
-                              }}
-                            >
-                              {/* Tooltip only - no text in block */}
-                              <div className="absolute hidden group-hover:block bottom-full left-1/2 transform -translate-x-1/2 mb-2 bg-slate-900 text-white px-3 py-2 rounded-lg text-xs whitespace-nowrap shadow-2xl border border-slate-700 pointer-events-none" style={{ zIndex: 999999 }}>
-                                <div className="font-bold text-blue-300">{formatTime(activity.startMinutes)} - {formatTime(activity.startMinutes + activity.duration)}</div>
-                                <div className="font-semibold mt-1">{activity.actionName}</div>
-                                <div className="text-slate-300">{activity.patientName}</div>
-                                <div className="text-slate-400 text-[10px] mt-1">Duur: {activity.duration} minuten</div>
-                                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
+                      {/* Activity blocks - colors only, no text */}
+                      {staffTasks.map((activity, idx) => {
+                        const startOffset = ((activity.startMinutes - startMinutes) / totalMinutes) * 100
+                        const width = (activity.duration / totalMinutes) * 100
+                        
+                        return (
+                          <div
+                            key={idx}
+                            className={`absolute top-1 bottom-1 ${getActivityColor(activity.type)} ${getActivityBorder(activity.type)} border rounded cursor-pointer`}
+                            style={{
+                              left: `${startOffset}%`,
+                              width: `${Math.max(width, 0.3)}%`,
+                              zIndex: 10,
+                            }}
+                            onMouseEnter={(event) => showTooltip(activity, event.currentTarget)}
+                            onMouseLeave={() => {
+                              setHoveredTooltip(null)
+                            }}
+                          >
+                          </div>
+                        )
+                      })}
                     </div>
+                  </div>
                   </div>
 
                   {/* Workload bar */}
@@ -632,6 +662,19 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
         </div>
       </div>
 
+      {hoveredTooltip && (
+        <div
+          className="fixed pointer-events-none"
+          style={{ left: `${hoveredTooltip.x}px`, top: `${hoveredTooltip.y}px`, transform: 'translate(-50%, -100%)', zIndex: 999999, width: '220px' }}
+        >
+          <div className="bg-slate-900 text-white px-3 py-2 rounded-lg text-xs shadow-2xl border border-slate-700">
+            <div className="font-bold text-blue-300">{hoveredTooltip.text.time}</div>
+            <div className="font-semibold mt-1">{hoveredTooltip.text.actionName}</div>
+            <div className="text-slate-300">{hoveredTooltip.text.patientName}</div>
+            <div className="text-slate-400 text-[10px] mt-1">Duur: {hoveredTooltip.text.duration} minuten</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

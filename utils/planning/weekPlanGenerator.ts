@@ -1,4 +1,4 @@
-import { DayOfWeek, StaffMember, getDayOfWeekFromDate, getDailyPatientCapacity, formatDateToISO } from '@/types'
+import { DayOfWeek, StaffMember, getDayOfWeekFromDate, getDailyPatientCapacity, formatDateToISO, getDepartmentHours } from '@/types'
 import { getAllMedications } from '@/types'
 import { generateActionsForMedication, calculateTotalTreatmentTime } from '../patients/actionGenerator'
 import { StaffScheduler } from '../staff/staffAssignment'
@@ -146,7 +146,7 @@ export async function generateWeekPlan(
         const [hours, minutes] = timeSlot.split(':').map(Number)
         const startMinutes = hours * 60 + minutes
         const endMinutes = startMinutes + totalDuration
-        const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES
+        const { endMinutes: closingMinutes } = getDepartmentHours()
 
         if (endMinutes > closingMinutes) {
           continue

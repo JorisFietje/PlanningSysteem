@@ -1,4 +1,4 @@
-import { Patient, StaffMember, DayOfWeek, DAY_LABELS, DEPARTMENT_CONFIG } from '@/types'
+import { Patient, StaffMember, DayOfWeek, DAY_LABELS, DEPARTMENT_CONFIG, getDepartmentHours } from '@/types'
 import { calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
 import { getDayOfWeekFromDate } from '@/types'
 
@@ -71,7 +71,8 @@ export function validateNurseWorkTime(
   const startInMinutes = startHours * 60 + startMinutes
   const treatmentEndInMinutes = startInMinutes + totalDuration
   
-  const nurseEndMinutes = (DEPARTMENT_CONFIG.START_HOUR * 60) + nurseData.maxWorkTime
+  const { startMinutes: openingTime } = getDepartmentHours()
+  const nurseEndMinutes = openingTime + nurseData.maxWorkTime
   
   if (treatmentEndInMinutes > nurseEndMinutes) {
     const nurseEndHours = Math.floor(nurseEndMinutes / 60)
@@ -96,14 +97,13 @@ export function validateTreatmentTime(
   const totalDuration = calculateTotalTreatmentTime(medicationId, treatmentNumber)
   const [startHours, startMinutes] = startTime.split(':').map(Number)
   const startInMinutes = startHours * 60 + startMinutes
-  const openingTime = DEPARTMENT_CONFIG.START_MINUTES
+  const { startMinutes: openingTime, endMinutes: closingTime } = getDepartmentHours()
   const endInMinutes = startInMinutes + totalDuration
-  const closingTime = DEPARTMENT_CONFIG.END_MINUTES
   
   if (startInMinutes < openingTime || startInMinutes > closingTime) {
     return {
       valid: false,
-      message: `Starttijd moet tussen 08:00 en 16:30 liggen.`
+      message: `Starttijd moet binnen openingstijden vallen.`
     }
   }
 
@@ -113,7 +113,7 @@ export function validateTreatmentTime(
     
     return {
       valid: false,
-      message: `Behandeling zou eindigen om ${endHours}:${String(endMins).padStart(2, '0')}, maar de afdeling sluit om 16:30. Kies een eerdere starttijd.`
+      message: `Behandeling zou eindigen om ${endHours}:${String(endMins).padStart(2, '0')}, maar de afdeling is dan gesloten. Kies een eerdere starttijd.`
     }
   }
   

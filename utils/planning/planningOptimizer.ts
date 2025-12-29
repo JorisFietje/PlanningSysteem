@@ -1,4 +1,4 @@
-import { Patient, StaffMember, DayOfWeek, DEPARTMENT_CONFIG } from '@/types'
+import { Patient, StaffMember, DayOfWeek, DEPARTMENT_CONFIG, getDepartmentHours } from '@/types'
 import { StaffScheduler } from '../staff/staffAssignment'
 import { ChairOccupancyTracker } from '../capacity/chairOccupancy'
 import { generateActionsForMedication, calculateTotalTreatmentTime } from '../patients/actionGenerator'
@@ -98,7 +98,7 @@ export async function optimizeDayPlanning(
       const [slotHours, slotMinutes] = slot.split(':').map(Number)
       const slotStartMinutes = slotHours * 60 + slotMinutes
       const endMinutes = slotStartMinutes + totalDuration
-      const closingTime = DEPARTMENT_CONFIG.END_MINUTES
+      const { endMinutes: closingTime } = getDepartmentHours()
       
       if (endMinutes > closingTime) continue
 

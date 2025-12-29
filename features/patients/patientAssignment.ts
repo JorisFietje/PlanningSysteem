@@ -1,4 +1,4 @@
-import { Patient, StaffMember, DayOfWeek, DEPARTMENT_CONFIG } from '@/types'
+import { Patient, StaffMember, DayOfWeek, DEPARTMENT_CONFIG, getDepartmentHours } from '@/types'
 import { getDayOfWeekFromDate } from '@/types'
 import { StaffScheduler } from '@/utils/staff/staffAssignment'
 import { generateActionsForMedication, calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
@@ -73,7 +73,7 @@ export async function assignActionsToPatient(
           const delay = delayedMinutes - actionStartMinutes
           if (delay > 0) {
             const newEndMinutes = delayedMinutes + totalDuration
-            const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES
+            const { endMinutes: closingMinutes } = getDepartmentHours()
 
             if (newEndMinutes > closingMinutes) {
               const endHours = Math.floor(newEndMinutes / 60)
@@ -154,7 +154,7 @@ export async function assignActionsToPatient(
           const delay = delayedMinutes - actionStartMinutes
           if (delay > 0) {
             const estimatedEndMinutes = delayedMinutes + duration
-            const closingMinutes = DEPARTMENT_CONFIG.END_MINUTES
+            const { endMinutes: closingMinutes } = getDepartmentHours()
 
             if (estimatedEndMinutes > closingMinutes) {
               const endHours = Math.floor(estimatedEndMinutes / 60)

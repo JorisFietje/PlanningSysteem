@@ -1,7 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { formatDateToISO, getAllMedications } from '@/types'
+import { formatDateToISO, getAllMedications, getDayOfWeekFromDate, getMondayOfWeek, Patient, StaffMember } from '@/types'
+import { Medication } from '@/types/medications'
+import { useDagplanningContext } from '../layout'
+import { scheduleTreatmentsAcrossDates } from '@/utils/planning/dayAutoScheduler'
+import { buildScheduleFromWorkDays } from '@/utils/staff/workDays'
 
 type DragMode = 'add' | 'remove'
 
@@ -20,6 +24,9 @@ function treatmentLabel(treatmentNumber: number) {
 }
 
 export default function BehandelingenPage() {
+  const { staffMembers, staffSchedule, coordinatorByDay } = useDagplanningContext()
+  const [isMounted, setIsMounted] = useState(false)
+  const [medications, setMedications] = useState<Medication[]>([])
   const today = new Date()
   const [monthDate, setMonthDate] = useState(new Date(today.getFullYear(), today.getMonth(), 1))
   const [selectedDates, setSelectedDates] = useState<string[]>([])
@@ -31,6 +38,10 @@ export default function BehandelingenPage() {
   const [saveMessage, setSaveMessage] = useState('')
   const [saveError, setSaveError] = useState('')
   const [dateTreatmentCounts, setDateTreatmentCounts] = useState<Record<string, Record<string, number>>>({})
+  const [isScheduling, setIsScheduling] = useState(false)
+  const [scheduleError, setScheduleError] = useState('')
+  const [scheduleResult, setScheduleResult] = useState<Array<{ date: string; startTime: string; label: string }>>([])
+  const [scheduleSkipped, setScheduleSkipped] = useState<Array<{ label: string; reason: string }>>([])
 
   const selectedSet = useMemo(() => new Set(selectedDates), [selectedDates])
 
@@ -96,8 +107,55 @@ export default function BehandelingenPage() {
     }
   }, [isDragging, dragStartDay, dragCurrentDay, dragMode, selectedSet, currentMonth, currentYear])
 
+  useEffect(() => {
+    setIsMounted(true)
+    setMedications(getAllMedications())
+  }, [])
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('selectedTreatmentsByDate')
+      if (!stored) return
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed.selectedDates)) {
+        setSelectedDates(parsed.selectedDates)
+      }
+      if (parsed.dateTreatmentCounts && typeof parsed.dateTreatmentCounts === 'object') {
+        setDateTreatmentCounts(parsed.dateTreatmentCounts)
+      }
+    } catch (error) {
+      console.error('Failed to load stored selections', error)
+    }
+    try {
+      const storedPlan = localStorage.getItem('scheduledTreatments')
+      if (!storedPlan) return
+      const parsedPlan = JSON.parse(storedPlan)
+      if (Array.isArray(parsedPlan)) {
+        setScheduleResult(parsedPlan)
+      }
+    } catch (error) {
+      console.error('Failed to load scheduled treatments', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isMounted) return
+    try {
+      const payload = {
+        selectedDates,
+        dateTreatmentCounts
+      }
+      localStorage.setItem('selectedTreatmentsByDate', JSON.stringify(payload))
+      setSaveMessage('Selecties automatisch opgeslagen.')
+      setSaveError('')
+    } catch (error) {
+      console.error('Failed to auto save selections', error)
+      setSaveError('Automatisch opslaan mislukt.')
+      setSaveMessage('')
+    }
+  }, [isMounted, selectedDates, dateTreatmentCounts])
+
   const treatments = useMemo(() => {
-    const medications = getAllMedications()
     const colorOverrides: Record<string, string> = {
       abatacept: 'emerald',
       bevacizumab_long: 'orange',
@@ -128,7 +186,7 @@ export default function BehandelingenPage() {
         totalMinutes: variant.timing.totalTime
       }))
     )
-  }, [])
+  }, [medications])
 
   const colorClasses: Record<string, string> = {
     purple: 'bg-purple-200 border-purple-300 text-purple-900',
@@ -151,6 +209,219 @@ export default function BehandelingenPage() {
   }
 
   const activeDateForBadge = selectedDates[0]
+
+  const buildTreatmentRequests = () => {
+    if (selectedDates.length === 0) return []
+    const counts: Record<string, number> = {}
+    if (selectedDates.length === 1) {
+      const date = selectedDates[0]
+      Object.entries(dateTreatmentCounts[date] || {}).forEach(([id, count]) => {
+        counts[id] = (counts[id] || 0) + count
+      })
+    } else {
+      selectedDates.forEach(date => {
+        const perDate = dateTreatmentCounts[date] || {}
+        Object.entries(perDate).forEach(([id, count]) => {
+          counts[id] = Math.max(counts[id] || 0, count)
+        })
+      })
+    }
+
+    return Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .map(([id, count]) => {
+        const [medicationId, treatmentNumber] = id.split('-')
+        return {
+          medicationId,
+          treatmentNumber: parseInt(treatmentNumber, 10),
+          quantity: count
+        }
+      })
+      .filter(item => item.medicationId && Number.isFinite(item.treatmentNumber))
+  }
+
+  const handleAutoSchedule = async () => {
+    if (selectedDates.length === 0) {
+      setScheduleError('Selecteer eerst één of meerdere datums.')
+      return
+    }
+
+    const treatmentRequests = buildTreatmentRequests()
+    if (treatmentRequests.length === 0) {
+      setScheduleError('Selecteer eerst behandelingen om in te plannen.')
+      return
+    }
+
+    setIsScheduling(true)
+    setScheduleError('')
+    setScheduleResult([])
+    setScheduleSkipped([])
+
+    try {
+      const existingPatientsByDate: Record<string, Patient[]> = {}
+      const responses = await Promise.all(
+        selectedDates.map(async date => {
+          const response = await fetch(`/api/patients?date=${date}`)
+          if (!response.ok) {
+            return { date, patients: [] }
+          }
+          const patients = await response.json() as Patient[]
+          return { date, patients }
+        })
+      )
+
+      responses.forEach(({ date, patients }) => {
+        existingPatientsByDate[date] = patients
+      })
+
+      const weekStarts = Array.from(new Set(selectedDates.map(date => getMondayOfWeek(date))))
+      const dayCapacityLimits: Record<string, number | null | undefined> = {}
+      const weekPlans = await Promise.all(
+        weekStarts.map(async weekStart => {
+          const response = await fetch(`/api/weekplan?weekStart=${weekStart}`)
+          if (!response.ok) return null
+          return response.json()
+        })
+      )
+      weekPlans.forEach(plan => {
+        if (!plan?.dayCapacities) return
+        plan.dayCapacities.forEach((entry: any) => {
+          if (entry?.date && entry.agreedMaxPatients !== undefined) {
+            dayCapacityLimits[entry.date] = entry.agreedMaxPatients
+          }
+        })
+      })
+
+      const defaultSchedule = buildScheduleFromWorkDays(staffMembers)
+      const staffMembersByDate: Record<string, StaffMember[]> = {}
+      const coordinatorByDate: Record<string, string | null> = {}
+
+      selectedDates.forEach(date => {
+        const weekStart = getMondayOfWeek(date)
+        const plan = weekPlans.find(p => p?.weekStartDate === weekStart || p?.weekStart === weekStart)
+        const schedule: Record<string, string[]> = { ...defaultSchedule }
+        const coordinators: Record<string, string | null> = { ...coordinatorByDay }
+        if (plan?.staffSchedules) {
+          plan.staffSchedules.forEach((s: any) => {
+            const day = s.dayOfWeek
+            try {
+              const parsed = JSON.parse(s.staffNames)
+              if (Array.isArray(parsed)) {
+                schedule[day] = parsed
+              } else {
+                schedule[day] = parsed?.staff || []
+                coordinators[day] = parsed?.coordinator || null
+              }
+            } catch {
+              schedule[day] = []
+            }
+          })
+        }
+        const day = getDayOfWeekFromDate(date)
+        const names = schedule[day] || []
+        staffMembersByDate[date] = names.length > 0 ? staffMembers.filter(member => names.includes(member.name)) : []
+        coordinatorByDate[date] = coordinators[day] || null
+      })
+
+      const existingCounts = Object.values(existingPatientsByDate).flat().reduce<Record<string, number>>((acc, patient) => {
+        const key = `${patient.medicationType}-${patient.treatmentNumber}`
+        acc[key] = (acc[key] || 0) + 1
+        return acc
+      }, {})
+
+      const remainingRequests = treatmentRequests
+        .map(request => {
+          const key = `${request.medicationId}-${request.treatmentNumber}`
+          const remaining = Math.max(0, request.quantity - (existingCounts[key] || 0))
+          return { ...request, quantity: remaining }
+        })
+        .filter(request => request.quantity > 0)
+
+      if (remainingRequests.length === 0) {
+        setScheduleError('Alle geselecteerde behandelingen staan al ingepland op deze datums.')
+        setIsScheduling(false)
+        return
+      }
+
+      const plan = scheduleTreatmentsAcrossDates(
+        selectedDates,
+        remainingRequests,
+        staffMembersByDate,
+        coordinatorByDate,
+        existingPatientsByDate,
+        dayCapacityLimits
+      )
+
+      const medications = getAllMedications()
+      const scheduledDisplay: Array<{ date: string; startTime: string; label: string }> = []
+      const skippedDisplay: Array<{ label: string; reason: string }> = []
+
+      for (const item of plan.scheduled) {
+        const medication = medications.find(med => med.id === item.medicationId)
+        const label = `${medication?.displayName || item.medicationId} (${item.treatmentNumber}e)`
+        const patientName = `Patiënt - ${label}`
+
+        const patientResponse = await fetch('/api/patients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: patientName,
+            startTime: item.startTime,
+            scheduledDate: item.date,
+            medicationType: item.medicationId,
+            treatmentNumber: item.treatmentNumber
+          })
+        })
+
+        if (!patientResponse.ok) {
+          skippedDisplay.push({ label, reason: 'Kon patiënt niet aanmaken' })
+          continue
+        }
+
+        const patient = await patientResponse.json()
+        for (const action of item.actions) {
+          await fetch('/api/actions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: action.name,
+              duration: action.duration,
+              staff: action.staff,
+              type: action.type,
+              actualDuration: action.actualDuration,
+              patientId: patient.id
+            })
+          })
+        }
+
+        scheduledDisplay.push({ date: item.date, startTime: item.startTime, label })
+      }
+
+      plan.skipped.forEach(item => {
+        const medication = medications.find(med => med.id === item.medicationId)
+        const label = `${medication?.displayName || item.medicationId} (${item.treatmentNumber}e)`
+        skippedDisplay.push({ label, reason: item.reason })
+      })
+
+      scheduledDisplay.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date)
+        return a.startTime.localeCompare(b.startTime)
+      })
+
+      setScheduleResult(scheduledDisplay)
+      setScheduleSkipped(skippedDisplay)
+      try {
+        localStorage.setItem('scheduledTreatments', JSON.stringify(scheduledDisplay))
+      } catch (error) {
+        console.error('Failed to save scheduled treatments', error)
+      }
+    } catch (error) {
+      console.error('Failed to auto schedule treatments', error)
+      setScheduleError('Automatisch inplannen mislukt.')
+    } finally {
+      setIsScheduling(false)
+    }
+  }
 
   const incrementTreatment = (treatmentId: string) => {
     if (selectedDates.length === 0) {
@@ -199,23 +470,17 @@ export default function BehandelingenPage() {
     })
   }
 
-  const handleSaveSelections = () => {
-    try {
-      const payload = {
-        selectedDates,
-        dateTreatmentCounts
-      }
-      localStorage.setItem('selectedTreatmentsByDate', JSON.stringify(payload))
-      setSaveMessage('Selecties opgeslagen.')
-      setSaveError('')
-    } catch (error) {
-      console.error('Failed to save selections', error)
-      setSaveError('Opslaan mislukt.')
-      setSaveMessage('')
-    }
-  }
+  const visibleScheduleResult = useMemo(() => {
+    if (selectedDates.length === 0) return []
+    return scheduleResult.filter(item => selectedSet.has(item.date))
+  }, [scheduleResult, selectedDates, selectedSet])
 
   return (
+    !isMounted ? (
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex items-center justify-center text-sm text-slate-500">
+        Laden...
+      </div>
+    ) : (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex flex-col">
       <div className="flex items-center justify-between p-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
         <div>
@@ -305,6 +570,20 @@ export default function BehandelingenPage() {
           {selectionWarning && (
             <div className="mt-3 text-xs text-red-700">{selectionWarning}</div>
           )}
+          {visibleScheduleResult.length > 0 && (
+            <div className="mt-3 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 rounded-md p-2">
+              <div className="font-semibold text-emerald-800 mb-1">Geplande behandelingen</div>
+              <div className="grid grid-cols-[90px_60px_1fr] gap-2">
+                {visibleScheduleResult.map((item, index) => (
+                  <div key={`${item.date}-${item.startTime}-${index}`} className="contents">
+                    <div>{item.date}</div>
+                    <div>{item.startTime}</div>
+                    <div>{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 overflow-hidden col-span-full sm:col-start-3 sm:col-end-[-1] sm:row-start-1 sm:row-end-[-1]">
@@ -313,12 +592,6 @@ export default function BehandelingenPage() {
             <div className="flex items-center gap-3">
               {selectedDates.length > 0 && (
                 <>
-                  <button
-                    onClick={handleSaveSelections}
-                    className="text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 px-3 py-1 rounded-md"
-                  >
-                    Selecties opslaan
-                  </button>
                   <button
                     onClick={() => {
                       setSelectedDates([])
@@ -332,6 +605,13 @@ export default function BehandelingenPage() {
                   </button>
                 </>
               )}
+              <button
+                onClick={handleAutoSchedule}
+                className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1 rounded-md"
+                disabled={isScheduling}
+              >
+                {isScheduling ? 'Inplannen...' : 'Automatisch inplannen'}
+              </button>
             </div>
           </div>
           {saveMessage && (
@@ -339,6 +619,19 @@ export default function BehandelingenPage() {
           )}
           {saveError && (
             <div className="text-xs text-red-700">{saveError}</div>
+          )}
+          {scheduleError && (
+            <div className="text-xs text-red-700">{scheduleError}</div>
+          )}
+          {scheduleSkipped.length > 0 && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-2">
+              <div className="font-semibold text-amber-800 mb-1">Niet ingepland</div>
+              <div className="space-y-1">
+                {scheduleSkipped.map((item, index) => (
+                  <div key={`${item.label}-${index}`}>{item.label} — {item.reason}</div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-1.5 overflow-auto">
@@ -372,5 +665,6 @@ export default function BehandelingenPage() {
         </div>
       </div>
     </div>
+    )
   )
 }

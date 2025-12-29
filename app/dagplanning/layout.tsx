@@ -47,7 +47,10 @@ export function useDagplanningContext() {
 
 export default function DagplanningLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const [selectedDate, setSelectedDate] = useState<string>(getTodayISO())
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    if (typeof window === 'undefined') return getTodayISO()
+    return localStorage.getItem('dagplanningSelectedDate') || getTodayISO()
+  })
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
     const today = new Date()
@@ -74,6 +77,11 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
   const { patients, setPatients, fetchPatients } = usePatients(selectedDate)
   const { staffMembers, loadStaffMembers } = useStaff()
   const { workload, setWorkload } = useWorkload(patients)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    localStorage.setItem('dagplanningSelectedDate', selectedDate)
+  }, [selectedDate])
 
   useEffect(() => {
     const monday = getMondayOfWeek(selectedDate)

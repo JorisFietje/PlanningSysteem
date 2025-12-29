@@ -1,4 +1,4 @@
-import { DEPARTMENT_CONFIG, StaffMember, DayOfWeek, getDayCoordinators } from '@/types'
+import { DEPARTMENT_CONFIG, StaffMember, DayOfWeek, getDayCoordinators, getDepartmentHours } from '@/types'
 
 interface StaffAvailability {
   staff: string
@@ -19,7 +19,7 @@ interface ScheduledTask {
 
 export class StaffScheduler {
   private availability: StaffAvailability[]
-  private readonly startHour = DEPARTMENT_CONFIG.START_HOUR
+  private readonly dayStartMinutes: number
   private scheduledTasks: ScheduledTask[] = []
   private setupRoundRobinIndex: number = 0 // Round-robin counter for fair setup distribution
   private staffMembers: StaffMember[]
@@ -33,6 +33,7 @@ export class StaffScheduler {
     coordinatorName?: string,
     options?: { suppressLogs?: boolean }
   ) {
+    this.dayStartMinutes = getDepartmentHours().startMinutes
     this.selectedDay = selectedDay
     this.coordinatorName = coordinatorName
     this.suppressLogs = Boolean(options?.suppressLogs)
@@ -156,7 +157,7 @@ export class StaffScheduler {
       .map((staff, index) => ({ staff, index }))
       .filter(({ staff }) => {
         const hasCapacity = staff.setupCount < staff.maxPatients
-        const withinWorkingHours = !staff.maxWorkTime || endMinutes <= staff.maxWorkTime
+        const withinWorkingHours = !staff.maxWorkTime || endMinutes <= (this.dayStartMinutes + staff.maxWorkTime)
         const timeSinceLastSetup = requestedMinutes - staff.lastSetupTime
         const hasEnoughPrepTime = timeSinceLastSetup >= DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME || staff.lastSetupTime === -999
         const hasNoOverlap = !this.hasOverlappingTask(staff.staff, requestedMinutes, endMinutes)
@@ -190,7 +191,7 @@ export class StaffScheduler {
       // Must have capacity left
       if (s.setupCount >= s.maxPatients) return false
       // Must be within working hours (check if adjusted time would be within their work time)
-      if (s.maxWorkTime && requestedMinutes >= s.maxWorkTime) return false
+      if (s.maxWorkTime && requestedMinutes >= (this.dayStartMinutes + s.maxWorkTime)) return false
       return true
     })
     
@@ -220,9 +221,10 @@ export class StaffScheduler {
     let adjustedStart = Math.max(requestedMinutes, fallbackStaff.busyUntil, minSetupTime)
     
     // Check if adjusted start would exceed staff's work time
-    if (fallbackStaff.maxWorkTime && adjustedStart >= fallbackStaff.maxWorkTime) {
+    if (fallbackStaff.maxWorkTime && adjustedStart >= (this.dayStartMinutes + fallbackStaff.maxWorkTime)) {
       if (!this.suppressLogs) {
-        console.error(`❌ ${fallbackStaff.staff} kan niet meer werken na ${Math.floor(fallbackStaff.maxWorkTime / 60) + 8}:00`)
+        const endMinutes = this.dayStartMinutes + fallbackStaff.maxWorkTime
+        console.error(`❌ ${fallbackStaff.staff} kan niet meer werken na ${Math.floor(endMinutes / 60)}:${String(endMinutes % 60).padStart(2, '0')}`)
       }
       return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
     }
@@ -279,7 +281,7 @@ export class StaffScheduler {
       // Check if excluded
       if (excludeStaff && s.staff === excludeStaff) return false
       // Check if action would end within staff working hours
-      if (s.maxWorkTime && endMinutes > s.maxWorkTime) return false
+      if (s.maxWorkTime && endMinutes > (this.dayStartMinutes + s.maxWorkTime)) return false
       return true
     })
 
@@ -290,7 +292,7 @@ export class StaffScheduler {
         if (excludeStaff && s.staff === excludeStaff) return false
         // Also check if this staff member would still be working when the action completes
         const projectedEnd = Math.max(requestedMinutes, s.busyUntil) + duration
-        if (s.maxWorkTime && projectedEnd > s.maxWorkTime) return false
+        if (s.maxWorkTime && projectedEnd > (this.dayStartMinutes + s.maxWorkTime)) return false
         return true
       })
       
@@ -402,6 +404,23 @@ export class StaffScheduler {
     
     this.scheduleTask(staffName, requestedMinutes, endMinutes, 'setup')
     this.updateStaffSetup(staffName, requestedMinutes, duration)
+  }
+
+  /**
+   * Register an existing task for a specific staff member
+   * Used to seed the scheduler with already planned work
+   */
+  public registerExistingTask(staffName: string, startTime: string, duration: number, type: string): void {
+    const requestedMinutes = this.timeToMinutes(startTime)
+    const endMinutes = requestedMinutes + duration
+
+    this.scheduleTask(staffName, requestedMinutes, endMinutes, type)
+
+    if (type === 'setup') {
+      this.updateStaffSetup(staffName, requestedMinutes, duration)
+    } else {
+      this.updateStaffWorkload(staffName, endMinutes, duration)
+    }
   }
 
   /**

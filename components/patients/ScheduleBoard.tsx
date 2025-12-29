@@ -1,6 +1,6 @@
 'use client'
 
-import { DEPARTMENT_CONFIG, Patient } from '@/types'
+import { DEPARTMENT_CONFIG, Patient, getDepartmentHours } from '@/types'
 import { getTotalDuration } from '@/utils/planning/workload'
 import { getMedicationById } from '@/types/medications'
 import { useState, useRef, useEffect } from 'react'
@@ -63,19 +63,20 @@ export default function ScheduleBoard({
   const timelineRef = useRef<HTMLDivElement>(null)
   const dragMovedRef = useRef(false)
   
-  const startMinutes = DEPARTMENT_CONFIG.START_MINUTES
-  const endMinutes = DEPARTMENT_CONFIG.END_MINUTES
-  const startHour = Math.floor(startMinutes / 60)
-  const endHour = Math.floor(endMinutes / 60)
-  const endMinuteRemainder = endMinutes % 60
+  const { startMinutes, endMinutes } = getDepartmentHours()
   const chairColumns = 17
   const minGapMinutes = 0
-  const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => {
-    const h = startHour + i
-    return `${h.toString().padStart(2, '0')}:00`
-  })
-  if (endMinuteRemainder > 0) {
-    hours.push(`${endHour.toString().padStart(2, '0')}:${endMinuteRemainder.toString().padStart(2, '0')}`)
+  const chairHeaderHeight = 26
+  const hourRowHeight = 80
+  const halfHourRowHeight = hourRowHeight / 2
+  const formatTime = (minutes: number) => {
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
+  }
+  const timeLabels: string[] = []
+  for (let minutes = startMinutes; minutes <= endMinutes; minutes += 30) {
+    timeLabels.push(formatTime(minutes))
   }
 
   const isEmpty = patients.length === 0
@@ -129,8 +130,13 @@ export default function ScheduleBoard({
       baseSlots.forEach(slot => {
         const existing = next[slot.patient.id]
         if (existing !== undefined) {
-          columns[existing]?.push(slot)
-          return
+          const hasOverlap = columns[existing]?.some(existingSlot => {
+            return slot.startMinutes < existingSlot.endMinutes && slot.endMinutes > existingSlot.startMinutes
+          })
+          if (!hasOverlap) {
+            columns[existing]?.push(slot)
+            return
+          }
         }
         let assigned = 0
         for (let col = 0; col < chairColumns; col++) {
@@ -184,8 +190,8 @@ export default function ScheduleBoard({
   
   timeSlots.forEach(slot => {
     const colIndex = getPatientColumn(slot.patient)
-    const position = ((slot.startMinutes - startMinutes) / 60) * 80
-    const height = Math.max(((slot.endMinutes - slot.startMinutes) / 60) * 80, 50)
+    const position = ((slot.startMinutes - startMinutes) / 60) * hourRowHeight
+    const height = Math.max(((slot.endMinutes - slot.startMinutes) / 60) * hourRowHeight, 50)
     patientPositions.set(slot.patient.id, {
       column: colIndex,
       totalColumns: maxColumns,
@@ -532,12 +538,20 @@ export default function ScheduleBoard({
       )}
       
       <div className="flex-1 overflow-auto" style={{ isolation: 'isolate', overflowY: 'visible' }} tabIndex={0} role="region" aria-label="Dagplanning tijdlijn">
-        <div className="grid grid-cols-[80px_1fr] gap-4 min-h-[600px]">
+        <div className="grid grid-cols-[90px_1fr] gap-4 min-h-[600px]">
           {/* Time labels */}
-          <div className="flex flex-col flex-shrink-0 relative z-0">
-            {hours.map(hour => (
-              <div key={hour} className="h-[70px] flex items-center justify-end pr-4 font-semibold text-slate-600 text-sm">
-                {hour}
+          <div
+            className="flex flex-col flex-shrink-0 relative z-0"
+            style={{ paddingTop: halfHourRowHeight / 2, paddingBottom: halfHourRowHeight / 2 }}
+          >
+            <div style={{ height: chairHeaderHeight }} />
+            {timeLabels.map((time, index) => (
+              <div
+                key={time}
+                className={`flex items-start justify-end pr-3 text-sm leading-none ${index % 2 === 0 ? 'font-semibold text-slate-600' : 'text-slate-400'}`}
+                style={{ height: halfHourRowHeight }}
+              >
+                {time}
               </div>
             ))}
           </div>
@@ -548,19 +562,32 @@ export default function ScheduleBoard({
             className="relative border-l-3 border-slate-300 overflow-x-auto"
             style={{ minWidth: maxColumns > 5 ? `${maxColumns * 90}px` : 'auto', isolation: 'isolate', overflowY: 'visible', position: 'relative' }}
           >
-            {hours.map((hour, index) => (
+            <div style={{ height: chairHeaderHeight }} />
+            {timeLabels.map((time, index) => (
               <div
-                key={hour}
-                className="h-[70px] border-b border-slate-200"
+                key={time}
+                className={`${index === 0 ? 'border-t ' : ''}border-b ${index % 2 === 0 ? 'border-slate-200' : 'border-slate-100'}`}
+                style={{ height: halfHourRowHeight }}
               />
             ))}
-            <div className="absolute inset-0 flex pointer-events-none">
+            <div
+              className="absolute left-0 right-0 top-0 flex pointer-events-none z-40"
+              style={{ height: chairHeaderHeight }}
+            >
               {Array.from({ length: chairColumns }).map((_, i) => (
                 <div key={i} className="flex-1 border-r border-slate-100 relative">
-                  <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[10px] text-slate-400">
+                  <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[10px] text-slate-400 bg-white/90 px-1 rounded">
                     Stoel {i + 1}
                   </div>
                 </div>
+              ))}
+            </div>
+            <div
+              className="absolute left-0 right-0 bottom-0 flex pointer-events-none z-20"
+              style={{ top: chairHeaderHeight }}
+            >
+              {Array.from({ length: chairColumns }).map((_, i) => (
+                <div key={i} className="flex-1 border-r border-slate-100" />
               ))}
             </div>
 
@@ -594,12 +621,12 @@ export default function ScheduleBoard({
                   }}
                   className={`absolute ${color} text-white rounded-md shadow-md hover:shadow-xl transition-all duration-200 cursor-pointer group border-2 border-white patient-card ${dragState?.patientId === patient.id ? 'opacity-70 ring-2 ring-white' : ''}`}
                   style={{ 
-                    top: `${pos.position}px`, 
+                    top: `${pos.position + chairHeaderHeight}px`, 
                     height: `${pos.height}px`,
                     left: `calc(${leftPosition}% + 2px)`,
                     width: `calc(${columnWidth}% - 4px)`,
                     padding: isExtremelyCompact ? '4px 6px' : isVeryCompact ? '6px 8px' : isCompact ? '8px 10px' : '10px 12px',
-                    zIndex: dragState?.patientId === patient.id ? 2000 : 10 + pos.column,
+                    zIndex: dragState?.patientId === patient.id ? 2000 : 5 + pos.column,
                     minWidth: isExtremelyCompact ? '60px' : isVeryCompact ? '80px' : 'auto',
                     transformOrigin: 'center center',
                     transform: 'scale(1)',
@@ -615,7 +642,7 @@ export default function ScheduleBoard({
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.transform = 'scale(1)'
-                    e.currentTarget.style.zIndex = `${10 + pos.column}`
+                    e.currentTarget.style.zIndex = `${5 + pos.column}`
                     setHoveredPatient(null)
                   }}
                   title={`${medicationName} - Klik voor details`}
@@ -626,15 +653,15 @@ export default function ScheduleBoard({
                     dragMovedRef.current = false
                     const elementRect = event.currentTarget.getBoundingClientRect()
                     const [startH, startM] = getPatientStartTime(patient).split(':').map(Number)
-                    const startMinutes = startH * 60 + startM
+                    const patientStartMinutes = startH * 60 + startM
                     const duration = getPatientDuration(patient)
-                    const minMinutes = DEPARTMENT_CONFIG.START_MINUTES
+                    const minMinutes = startMinutes
                     const maxMinutes = Math.max(endMinutes - duration, minMinutes)
                     setDragState({
                       patientId: patient.id,
                       startY: event.clientY,
                       grabOffsetPx: event.clientY - elementRect.top,
-                      startMinutes,
+                      startMinutes: patientStartMinutes,
                       startColumn: getPatientColumn(patient),
                       minMinutes,
                       maxMinutes
@@ -925,115 +952,6 @@ export default function ScheduleBoard({
                 </div>
               </div>
 
-              {/* Actions Timeline */}
-              <div>
-                <h4 className="text-base font-semibold text-slate-900 mb-3 flex items-center gap-2">
-                  <svg className="w-4 h-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
-                  Behandeling Overzicht ({selectedPatient.actions.filter(a => a.type !== 'infusion').length} handelingen)
-                </h4>
-                <div className="space-y-2.5" role="list">
-                  {selectedPatient.actions.map((action, index) => {
-                    const isSetup = action.type === 'setup' || action.name.includes('Aanbrengen')
-                    const isRemoval = action.type === 'removal' || action.name.includes('Afkoppelen')
-                    const isInfusion = action.type === 'infusion' || action.name.includes('Loopt')
-                    const isCheck = action.type === 'check' || action.name.includes('Controle') || action.name.includes('Check')
-                    
-                    // Determine color based on action type
-                    let barColor = 'bg-slate-400'
-                    if (isSetup) barColor = 'bg-purple-500'
-                    else if (isCheck) barColor = 'bg-blue-500'
-                    else if (isInfusion) barColor = 'bg-green-500'
-                    else if (isRemoval) barColor = 'bg-orange-500'
-                    
-                    const duration = action.actualDuration || action.duration
-                    const durationText = (isSetup || isRemoval) ? `~${duration}m` : `${duration}m`
-                    
-                    return (
-                      <div 
-                        key={action.id} 
-                        role="listitem"
-                        className="flex rounded-lg border-2 border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors overflow-hidden"
-                      >
-                        {/* Colored left bar */}
-                        <div className={`w-2 ${barColor} flex-shrink-0`}></div>
-                        
-                        {/* Content */}
-                        <div className="flex-1 p-3 flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="font-semibold text-sm text-slate-900">{action.name}</div>
-                            {action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen' ? (
-                              <div className="text-xs text-slate-600 mt-0.5">{action.staff}</div>
-                            ) : action.staff === 'Systeem' ? (
-                              <div className="text-xs text-slate-600 mt-0.5">Systeem</div>
-                            ) : null}
-                          </div>
-                          <div className="text-right ml-3">
-                            {onUpdateActionDuration ? (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={actionDurations[action.id] ?? ''}
-                                  onChange={(e) =>
-                                    setActionDurations(prev => ({ ...prev, [action.id]: e.target.value }))
-                                  }
-                                  className="w-20 px-2 py-1 rounded-md border-2 border-slate-200 bg-white text-slate-900 text-sm"
-                                />
-                                <span className="text-xs text-slate-500">min</span>
-                              </div>
-                            ) : (
-                              <div className="font-bold text-base text-slate-900">
-                                {durationText}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-                {onUpdateActionDuration && (
-                  <div className="mt-3">
-                    {actionUpdateMessage && (
-                      <div className="text-xs text-green-700">{actionUpdateMessage}</div>
-                    )}
-                    {actionUpdateError && (
-                      <div className="text-xs text-red-700">{actionUpdateError}</div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleSaveActionDurations}
-                      className="mt-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-semibold transition-colors"
-                    >
-                      Handelingen opslaan
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Summary */}
-              <div className="mt-4 pt-4 border-t-2 border-slate-300">
-                <div className="grid grid-cols-3 gap-3 text-center" role="group" aria-label="Behandeling samenvatting">
-                  <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
-                    <div className="text-xl font-bold text-slate-900">{getTotalDuration(selectedPatient)}</div>
-                    <div className="text-xs font-medium text-slate-700 mt-1.5">Totaal minuten</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
-                    <div className="text-xl font-bold text-slate-900">
-                      {selectedPatient.actions.filter(a => a.staff && a.staff !== 'Systeem' && a.staff !== 'Geen').length}
-                    </div>
-                    <div className="text-xs font-medium text-slate-700 mt-1.5">VPK handelingen</div>
-                  </div>
-                  <div className="bg-slate-50 rounded-lg p-3 border-2 border-slate-300">
-                    <div className="text-xl font-bold text-slate-900">
-                      {new Set(selectedPatient.actions.filter(a => a.staff && a.staff !== 'Systeem' && a.staff !== 'Geen').map(a => a.staff)).size}
-                    </div>
-                    <div className="text-xs font-medium text-slate-700 mt-1.5">Verpleegkundigen</div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>

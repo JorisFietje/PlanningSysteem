@@ -1,12 +1,12 @@
 import { DayOfWeek, formatDateToISO } from '@/types'
 
 export type RampScheduleItem = {
-  week: number | null
+  occurrence: number | null
   startTime?: string | null
   endTime?: string | null
   patients: number | null
 }
-export type RampSchedule = { createdAt: string; startWeek?: number; startWeekYear?: number; items: RampScheduleItem[] }
+export type RampSchedule = { createdAt: string; startDate?: string; items: RampScheduleItem[] }
 export type RampScheduleMap = Record<string, RampSchedule>
 
 const STORAGE_KEY = 'staffRampSchedules'
@@ -49,31 +49,36 @@ export const loadRampSchedules = (): RampScheduleMap => {
     const mapped: RampScheduleMap = {}
     Object.entries(parsed).forEach(([name, value]) => {
       if (Array.isArray(value)) {
-        const todayInfo = getISOWeekInfo(new Date())
+        const todayISO = getTodayISO()
         mapped[name] = {
-          createdAt: getTodayISO(),
-          startWeek: todayInfo.week,
-          startWeekYear: todayInfo.year,
-          items: value
+          createdAt: todayISO,
+          startDate: todayISO,
+          items: value.map((item: any) => ({
+            ...item,
+            occurrence: typeof item.week === 'number' ? item.week : item.occurrence ?? null,
+          }))
         }
         return
       }
       if (value && typeof value === 'object') {
         const items = Array.isArray(value.items) ? value.items : []
         const createdAt = typeof value.createdAt === 'string' ? value.createdAt : getTodayISO()
-        const startWeek = typeof value.startWeek === 'number' ? value.startWeek : undefined
-        const startWeekYear = typeof value.startWeekYear === 'number' ? value.startWeekYear : undefined
+        let startDate = typeof value.startDate === 'string' ? value.startDate : undefined
+        if (!startDate && typeof value.startWeek === 'number' && typeof value.startWeekYear === 'number') {
+          const startWeekDate = getDateOfISOWeek(value.startWeek, value.startWeekYear)
+          startDate = formatDateToISO(new Date(startWeekDate))
+        }
         const normalizedItems = items.map((item: any) => {
           if (item && typeof item === 'object' && typeof item.hours === 'number') {
             const endMinutes = Math.max(0, item.hours) * 60
             const endHours = Math.floor(endMinutes / 60) + 8
             const endMins = endMinutes % 60
             const endTime = `${String(endHours).padStart(2, '0')}:${String(endMins).padStart(2, '0')}`
-            return { ...item, startTime: '08:00', endTime }
+            return { ...item, startTime: '08:00', endTime, occurrence: item.occurrence ?? item.week ?? null }
           }
-          return item
+          return { ...item, occurrence: item.occurrence ?? item.week ?? null }
         })
-        mapped[name] = { createdAt, startWeek, startWeekYear, items: normalizedItems }
+        mapped[name] = { createdAt, startDate: startDate ?? createdAt, items: normalizedItems }
       }
     })
     return mapped
@@ -120,21 +125,15 @@ export const buildRampOccurrenceCounts = (
   if (entries.length === 0) return {}
 
   const earliestStart = entries.reduce((min, [_, schedule]) => {
-    if (schedule.startWeek && schedule.startWeekYear) {
-      const startDate = getDateOfISOWeek(schedule.startWeek, schedule.startWeekYear)
-      const iso = formatDateToISO(new Date(startDate))
-      if (!min) return iso
-      return parseDate(iso) < parseDate(min) ? iso : min
-    }
-    if (!schedule.createdAt) return min
-    if (!min) return schedule.createdAt
-    return parseDate(schedule.createdAt) < parseDate(min) ? schedule.createdAt : min
+    const candidate = schedule.startDate || schedule.createdAt
+    if (!candidate) return min
+    if (!min) return candidate
+    return parseDate(candidate) < parseDate(min) ? candidate : min
   }, '' as string)
 
   if (!earliestStart) return {}
 
   const occurrenceCounts: Record<string, number> = {}
-  const lastWeekKeyByName: Record<string, string> = {}
   const perDate: Record<string, Record<string, number>> = {}
 
   const start = parseDate(earliestStart)
@@ -144,7 +143,6 @@ export const buildRampOccurrenceCounts = (
     const dayOfWeek = getWeekdayFromDate(cursor)
     if (!dayOfWeek || !isDayOfWeek(dayOfWeek)) continue
     const dateISO = formatDateToISO(cursor)
-    const dateWeekInfo = getISOWeekInfo(cursor)
     const weekStart = getMondayOfWeek(cursor)
     const scheduleForWeek = scheduleByWeekStart[weekStart] || defaultSchedule
     const staffForDay = scheduleForWeek[dayOfWeek] || []
@@ -152,17 +150,11 @@ export const buildRampOccurrenceCounts = (
     staffForDay.forEach(name => {
       const ramp = rampSchedules[name]
       if (!ramp) return
-      if (ramp.startWeek && ramp.startWeekYear) {
-        if (dateWeekInfo.year < ramp.startWeekYear) return
-        if (dateWeekInfo.year === ramp.startWeekYear && dateWeekInfo.week < ramp.startWeek) return
-      } else if (parseDate(dateISO) < parseDate(ramp.createdAt)) {
+      const rampStart = ramp.startDate || ramp.createdAt
+      if (rampStart && parseDate(dateISO) < parseDate(rampStart)) {
         return
       }
-      const weekKey = `${dateWeekInfo.year}-W${dateWeekInfo.week}`
-      if (lastWeekKeyByName[name] !== weekKey) {
-        occurrenceCounts[name] = (occurrenceCounts[name] || 0) + 1
-        lastWeekKeyByName[name] = weekKey
-      }
+      occurrenceCounts[name] = (occurrenceCounts[name] || 0) + 1
       if (!perDate[dateISO]) perDate[dateISO] = {}
       perDate[dateISO][name] = occurrenceCounts[name]
     })
@@ -173,16 +165,16 @@ export const buildRampOccurrenceCounts = (
 
 export const getRampValuesForOccurrence = (schedule: RampSchedule, occurrenceIndex: number) => {
   const items = (schedule.items || [])
-    .filter(item => typeof item.week === 'number' && item.week !== null)
-    .sort((a, b) => (a.week as number) - (b.week as number))
+    .filter(item => typeof item.occurrence === 'number' && item.occurrence !== null)
+    .sort((a, b) => (a.occurrence as number) - (b.occurrence as number))
 
   if (items.length === 0) return null
 
-  const maxWeek = items[items.length - 1]?.week ?? null
-  if (maxWeek !== null && occurrenceIndex > maxWeek) return null
+  const maxOccurrence = items[items.length - 1]?.occurrence ?? null
+  if (maxOccurrence !== null && occurrenceIndex > maxOccurrence) return null
 
   const matched = items.reduce<RampScheduleItem | null>((acc, item) => {
-    if (item.week !== null && item.week <= occurrenceIndex) return item
+    if (item.occurrence !== null && item.occurrence <= occurrenceIndex) return item
     return acc
   }, null)
 

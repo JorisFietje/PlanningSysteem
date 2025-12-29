@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate, Patient, getAllMedications } from '@/types'
+import { MEDICATION_CATEGORIES, TREATMENT_NUMBER_OPTIONS, DEPARTMENT_CONFIG, StaffMember, getDayOfWeekFromDate, Patient, getAllMedications, getDepartmentHours } from '@/types'
 import { getTreatmentBreakdown } from '@/utils/patients/actionGenerator'
 import TimeSlotPicker from '../planning/TimeSlotPicker'
 import Select from '../common/Select'
@@ -27,8 +27,14 @@ function generatePatientName(medicationName: string): string {
 
 export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, staffMembers, editingPatient, onUpdate, onUpdateActionDuration }: PatientModalProps) {
   const isEditing = !!editingPatient
-  
-  const [startTime, setStartTime] = useState('08:00')
+
+  const { startMinutes: openingMinutes } = getDepartmentHours()
+  const formatTime = (minutes: number) => {
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
+  }
+  const [startTime, setStartTime] = useState(formatTime(openingMinutes))
   const [selectedCategory, setSelectedCategory] = useState('immunotherapy')
   const [medicationId, setMedicationId] = useState(getAllMedications().find(m => m.category === 'immunotherapy')?.id || '')
   const [treatmentNumber, setTreatmentNumber] = useState(1)
@@ -84,7 +90,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         setActionUpdateError('')
       } else {
         // Reset for new patient
-        setStartTime('08:00')
+      setStartTime(formatTime(openingMinutes))
         setSelectedCategory('immunotherapy')
         setMedicationId(getAllMedications().find(m => m.category === 'immunotherapy')?.id || '')
         setTreatmentNumber(1)
@@ -199,7 +205,7 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const [startHours, startMinutes] = startTime.split(':').map(Number)
   const startInMinutes = startHours * 60 + startMinutes
   const endInMinutes = breakdown ? startInMinutes + effectiveTotal : startInMinutes
-  const closingTime = DEPARTMENT_CONFIG.END_MINUTES
+  const { endMinutes: closingTime } = getDepartmentHours()
   const endsAfterClosing = endInMinutes > closingTime
 
   if (!isOpen) return null
