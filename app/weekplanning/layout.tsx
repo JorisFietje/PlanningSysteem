@@ -2,6 +2,7 @@
 
 import { useState, useEffect, createContext, useContext, ReactNode, useCallback, useRef } from 'react'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 import {
   DayOfWeek,
   formatDateToISO,
@@ -78,6 +79,7 @@ const emptyCoordinators: Record<DayOfWeek, string | null> = {
 }
 
 export default function WeekplanningLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname()
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
     const today = new Date()
     const day = today.getDay()
@@ -391,79 +393,81 @@ export default function WeekplanningLayout({ children }: { children: ReactNode }
               <SidebarTree collapsed={sidebarCollapsed} />
             </div>
 
-              <div className={`p-3 border-t border-slate-200 space-y-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
-                <button
-                  onClick={async () => {
-                    if (!confirm('Weet u zeker dat u de weekplanning wilt genereren? Dit vervangt de huidige patiënten voor deze week.')) return
-                    setIsGenerating(true)
-                    try {
-                      const { generateWeekPlan } = await import('@/utils/planning/weekPlanGenerator')
-                      const result = await generateWeekPlan(selectedWeekStart, staffSchedule as any, treatments, staffMembers)
-                      if (!result || !result.patients || result.patients.length === 0) {
-                        setIsGenerating(false)
-                        return
-                      }
-
-                      const response = await fetch('/api/weekplan/generate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          weekStartDate: selectedWeekStart,
-                          patientIds: result.patientIds,
-                          patients: result.patients
-                        })
-                      })
-
-                      if (response.ok) {
-                        setGeneratedPatients(result.patientIds)
-                        await loadWeekPlan()
-                      }
-                    } catch (error) {
-                      console.error('Failed to generate week plan:', error)
-                    } finally {
-                      setIsGenerating(false)
-                    }
-                  }}
-                  className="w-full px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm transition-colors"
-                >
-                  Weekplanning genereren
-                </button>
-                {generatedPatients.length > 0 && (
+              {pathname !== '/weekplanning/cap-overzicht' && (
+                <div className={`p-3 border-t border-slate-200 space-y-2 ${sidebarCollapsed ? 'hidden' : ''}`}>
                   <button
                     onClick={async () => {
-                      if (!confirm(`Weet je zeker dat je de gegenereerde planning wilt verwijderen? Dit verwijdert ${generatedPatients.length} patiënten.`)) return
+                      if (!confirm('Weet u zeker dat u de weekplanning wilt genereren? Dit vervangt de huidige patiënten voor deze week.')) return
+                      setIsGenerating(true)
                       try {
-                        const { deletePatient } = await import('@/features/patients/patientService')
-                        let deletedCount = 0
-                        for (const patientId of generatedPatients) {
-                          const success = await deletePatient(patientId)
-                          if (success) {
-                            deletedCount++
-                          }
+                        const { generateWeekPlan } = await import('@/utils/planning/weekPlanGenerator')
+                        const result = await generateWeekPlan(selectedWeekStart, staffSchedule as any, treatments, staffMembers)
+                        if (!result || !result.patients || result.patients.length === 0) {
+                          setIsGenerating(false)
+                          return
                         }
 
-                        setGeneratedPatients([])
-
-                        await fetch('/api/weekplan', {
-                          method: 'PUT',
+                        const response = await fetch('/api/weekplan/generate', {
+                          method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
                             weekStartDate: selectedWeekStart,
-                            generatedPatients: JSON.stringify([])
+                            patientIds: result.patientIds,
+                            patients: result.patients
                           })
                         })
 
-                        await loadWeekPlan()
+                        if (response.ok) {
+                          setGeneratedPatients(result.patientIds)
+                          await loadWeekPlan()
+                        }
                       } catch (error) {
-                        console.error('Failed to delete plan:', error)
+                        console.error('Failed to generate week plan:', error)
+                      } finally {
+                        setIsGenerating(false)
                       }
                     }}
-                    className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-sm transition-colors"
+                    className="w-full px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm transition-colors"
                   >
-                    Verwijder gegenereerde patiënten
+                    Weekplanning genereren
                   </button>
-                )}
-              </div>
+                  {generatedPatients.length > 0 && (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`Weet je zeker dat je de gegenereerde planning wilt verwijderen? Dit verwijdert ${generatedPatients.length} patiënten.`)) return
+                        try {
+                          const { deletePatient } = await import('@/features/patients/patientService')
+                          let deletedCount = 0
+                          for (const patientId of generatedPatients) {
+                            const success = await deletePatient(patientId)
+                            if (success) {
+                              deletedCount++
+                            }
+                          }
+
+                          setGeneratedPatients([])
+
+                          await fetch('/api/weekplan', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              weekStartDate: selectedWeekStart,
+                              generatedPatients: JSON.stringify([])
+                            })
+                          })
+
+                          await loadWeekPlan()
+                        } catch (error) {
+                          console.error('Failed to delete plan:', error)
+                        }
+                      }}
+                      className="w-full px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-sm transition-colors"
+                    >
+                      Verwijder gegenereerde patiënten
+                    </button>
+                  )}
+                </div>
+              )}
             </aside>
 
           <div className="flex-1 overflow-y-auto p-3" tabIndex={0} role="region" aria-label="Weekplanning inhoud">
