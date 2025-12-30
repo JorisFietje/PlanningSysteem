@@ -17,30 +17,30 @@ type NavSection = {
 
 const navTree: NavSection[] = [
   {
-    label: 'Dagplanning',
-    base: '/dagplanning',
+    label: 'Planning',
+    base: '/planning',
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
       </svg>
     ),
     items: [
-      { label: 'Planning', href: '/dagplanning/planning' },
+      { label: 'Snapboard', href: '/dagplanning/planning' },
       { label: 'Behandelingen', href: '/dagplanning/behandelingen' },
-      { label: 'Handelingen Overzicht', href: '/dagplanning/medewerkers' },
-      { label: 'Dashboard', href: '/dagplanning/analyse' }
+      { label: 'Handelingen Overzicht', href: '/dagplanning/medewerkers' }
     ]
   },
   {
-    label: 'Weekplanning',
-    base: '/weekplanning',
+    label: 'Overzichten',
+    base: '/overzichten',
     icon: (
       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
     ),
     items: [
-      { label: 'CAP Overzicht', href: '/weekplanning/cap-overzicht' }
+      { label: 'CAP', href: '/weekplanning/cap-overzicht' },
+      { label: 'Dashboard', href: '/dagplanning/analyse' }
     ]
   },
   {
@@ -65,7 +65,7 @@ export default function SidebarTree({ collapsed = false }: { collapsed?: boolean
     return (
       <nav className="flex flex-col items-center gap-3 p-3" aria-label="Sitemap navigatie">
         {navTree.map(section => {
-          const isSectionActive = pathname?.startsWith(section.base)
+          const isSectionActive = section.items.some(item => pathname?.startsWith(item.href))
           return (
             <Link
               key={section.base}
@@ -86,7 +86,7 @@ export default function SidebarTree({ collapsed = false }: { collapsed?: boolean
   return (
     <nav className="flex flex-col gap-3 p-3 text-sm" aria-label="Sitemap navigatie">
       {navTree.map(section => {
-        const isSectionActive = pathname?.startsWith(section.base)
+        const isSectionActive = section.items.some(item => pathname?.startsWith(item.href))
         return (
           <div key={section.base} className="space-y-1">
             <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${

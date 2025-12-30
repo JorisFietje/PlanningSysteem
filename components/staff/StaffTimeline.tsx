@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate, getDepartmentHours } from '@/types'
+import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate, getDepartmentHours, getDaycoPatientsCount } from '@/types'
 import { getMedicationById } from '@/types/medications'
 import { calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
 
@@ -9,6 +9,7 @@ interface StaffTimelineProps {
   patients: Patient[]
   selectedDate: string // YYYY-MM-DD format
   staffMembers: StaffMember[]
+  coordinatorName?: string | null
 }
 
 interface StaffActivity {
@@ -20,7 +21,7 @@ interface StaffActivity {
   type: string
 }
 
-export default function StaffTimeline({ patients, selectedDate, staffMembers }: StaffTimelineProps) {
+export default function StaffTimeline({ patients, selectedDate, staffMembers, coordinatorName }: StaffTimelineProps) {
   const { startMinutes, endMinutes } = getDepartmentHours()
   const startHour = Math.floor(startMinutes / 60)
   const endHour = Math.floor(endMinutes / 60)
@@ -100,66 +101,6 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
   }
 
   const staffAllocation = useMemo(() => {
-    const staffOrder = new Map(availableStaff.map((staff, index) => [staff.name, index]))
-    const allocation = availableStaff.map(staff => ({
-      name: staff.name,
-      maxWorkTime: staff.maxWorkTime,
-      totalWorkload: 0,
-      tasks: [] as { start: number; end: number }[]
-    }))
-
-    const hasOverlap = (tasks: { start: number; end: number }[], start: number, end: number) => {
-      return tasks.some(task => start < task.end && end > task.start)
-    }
-
-    const canWorkUntil = (maxWorkTime: number | undefined, endMinutesValue: number) => {
-      if (!maxWorkTime) return true
-      return endMinutesValue <= startMinutes + maxWorkTime
-    }
-
-    const pickBest = <T extends { name: string; totalWorkload: number }>(list: T[]) => {
-      return list.reduce<T | null>((best, current) => {
-        if (!best) return current
-        if (current.totalWorkload < best.totalWorkload) return current
-        if (current.totalWorkload > best.totalWorkload) return best
-        const bestOrder = staffOrder.get(best.name) ?? 0
-        const currentOrder = staffOrder.get(current.name) ?? 0
-        return currentOrder < bestOrder ? current : best
-      }, null)
-    }
-
-    const assignStaff = (start: number, duration: number, preferred?: string | null) => {
-      const end = start + duration
-      const preferredStaff = preferred ? allocation.find(staff => staff.name === preferred) : null
-      if (
-        preferredStaff &&
-        canWorkUntil(preferredStaff.maxWorkTime, end) &&
-        !hasOverlap(preferredStaff.tasks, start, end)
-      ) {
-        preferredStaff.totalWorkload += duration
-        preferredStaff.tasks.push({ start, end })
-        return preferredStaff.name
-      }
-
-      const candidates = allocation.filter(staff =>
-        canWorkUntil(staff.maxWorkTime, end) &&
-        !hasOverlap(staff.tasks, start, end)
-      )
-      if (candidates.length > 0) {
-        const best = pickBest(candidates)
-        if (!best) return null
-        best.totalWorkload += duration
-        best.tasks.push({ start, end })
-        return best.name
-      }
-
-      const fallback = pickBest(allocation)
-      if (!fallback) return null
-      fallback.totalWorkload += duration
-      fallback.tasks.push({ start, end })
-      return fallback.name
-    }
-
     const assigned: StaffActivity[] = []
 
     sortedPatients.forEach(patient => {
@@ -185,7 +126,6 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
         if (!actionType && hasStaff) return true
         return (
           actionType === 'setup' ||
-          actionType === 'protocol_check' ||
           actionType === 'check' ||
           actionType === 'flush' ||
           actionType === 'removal' ||
@@ -220,21 +160,21 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
         
         const scheduledStartMinutes = startMinutesForAction
         const effectiveDuration = action.actualDuration || action.duration
-        const preferredStaff = isValidStaffName(actionStaff) ? actionStaff : null
+        if (!isValidStaffName(actionStaff)) {
+          currentMinutes += action.duration
+          continue
+        }
 
-        const assignedStaff = assignStaff(scheduledStartMinutes, effectiveDuration, preferredStaff)
-        if (assignedStaff) {
-          const closingMinutes = endMinutes
-          if (scheduledStartMinutes < closingMinutes && scheduledStartMinutes + effectiveDuration > startMinutes) {
-            assigned.push({
-              staff: assignedStaff,
-              startMinutes: scheduledStartMinutes,
-              duration: effectiveDuration,
-              actionName: action.name,
-              patientName: patient.name,
-              type: inferredType || 'other'
-            })
-          }
+        const closingMinutes = endMinutes
+        if (scheduledStartMinutes < closingMinutes && scheduledStartMinutes + effectiveDuration > startMinutes) {
+          assigned.push({
+            staff: actionStaff!,
+            startMinutes: scheduledStartMinutes,
+            duration: effectiveDuration,
+            actionName: action.name,
+            patientName: patient.name,
+            type: inferredType || 'other'
+          })
         }
         
         currentMinutes += action.duration
@@ -242,7 +182,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
     })
 
     const grouped: { [key: string]: StaffActivity[] } = {}
-    allocation.forEach(member => {
+    availableStaff.forEach(member => {
       grouped[member.name] = assigned
         .filter(a => a.staff === member.name)
         .sort((a, b) => a.startMinutes - b.startMinutes)
@@ -273,6 +213,63 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
 
   const staffActivities = staffAllocation.grouped
   const allActivities = staffAllocation.flat
+
+  const breakAssignments = useMemo(() => {
+    const lunchStart = 12 * 60
+    const lunchMid = 12 * 60 + 30
+    const lunchEnd = 13 * 60
+    const earlyGroupCount = Math.floor(availableStaff.length / 2)
+
+    const getOverlapMinutes = (start: number, duration: number, rangeStart: number, rangeEnd: number) => {
+      const end = start + duration
+      const overlapStart = Math.max(start, rangeStart)
+      const overlapEnd = Math.min(end, rangeEnd)
+      return Math.max(overlapEnd - overlapStart, 0)
+    }
+
+    const scored = availableStaff.map(member => {
+      const tasks = staffActivities[member.name] || []
+      let earlyMinutes = 0
+      let lateMinutes = 0
+      tasks.forEach(task => {
+        earlyMinutes += getOverlapMinutes(task.startMinutes, task.duration, lunchStart, lunchMid)
+        lateMinutes += getOverlapMinutes(task.startMinutes, task.duration, lunchMid, lunchEnd)
+      })
+      return { name: member.name, earlyMinutes, lateMinutes }
+    })
+
+    const earlyNames = new Set(
+      scored
+        .slice()
+        .sort((a, b) => {
+          const diffA = a.earlyMinutes - a.lateMinutes
+          const diffB = b.earlyMinutes - b.lateMinutes
+          if (diffA !== diffB) return diffA - diffB
+          if (a.earlyMinutes !== b.earlyMinutes) return a.earlyMinutes - b.earlyMinutes
+          return a.lateMinutes - b.lateMinutes
+        })
+        .slice(0, Math.max(earlyGroupCount, 0))
+        .map(item => item.name)
+    )
+
+    const lateNames = new Set(
+      scored
+        .filter(item => !earlyNames.has(item.name))
+        .map(item => item.name)
+    )
+
+    const result: Record<string, { start: number; end: number }> = {}
+    availableStaff.forEach(member => {
+      const isEarly = earlyNames.has(member.name)
+      const isLate = lateNames.has(member.name)
+      const useEarly = isEarly || !isLate
+      result[member.name] = {
+        start: useEarly ? lunchStart : lunchMid,
+        end: useEarly ? lunchMid : lunchEnd
+      }
+    })
+    return result
+  }, [availableStaff, staffActivities])
 
   // Calculate staff workload over time (how many unique nurses are busy at each minute)
   const calculateStaffWorkload = () => {
@@ -397,9 +394,11 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           const uniquePatients = new Set(staffTasks.map(a => a.patientName)).size
           
           // Calculate workload percentage based on actual working time
-          const staffWorkMinutes = staffMember.maxWorkTime 
-            ? staffMember.maxWorkTime 
-            : totalMinutes
+          const isCoordinator = coordinatorName && staffMember.name === coordinatorName
+          const baseWorkMinutes = staffMember.maxWorkTime ? staffMember.maxWorkTime : totalMinutes
+          const staffWorkMinutes = isCoordinator
+            ? Math.max(baseWorkMinutes - 180, 0)
+            : baseWorkMinutes
           const workloadPercentage = ((totalTime / staffWorkMinutes) * 100).toFixed(1)
           
           const setupTasks = staffTasks.filter(a => a.type === 'setup').length
@@ -408,6 +407,17 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
           const pcSwitchTasks = staffTasks.filter(a => a.type === 'pc_switch').length
           const removalTasks = staffTasks.filter(a => a.type === 'removal').length
           
+          const staffBreak = breakAssignments[staffMember.name]
+          const staffBreakStart = staffBreak?.start ?? 12 * 60
+          const staffBreakEnd = staffBreak?.end ?? (12 * 60 + 30)
+          const breakLeft = ((staffBreakStart - startMinutes) / totalMinutes) * 100
+          const breakWidth = ((staffBreakEnd - staffBreakStart) / totalMinutes) * 100
+          const clampedBreakLeft = Math.max(breakLeft, 0)
+          const clampedBreakWidth = Math.max(
+            Math.min(breakWidth, 100 - clampedBreakLeft),
+            0
+          )
+
           return (
             <div key={staffMember.name} className="border-2 border-slate-200 rounded-lg p-3 hover:border-blue-300 transition-colors overflow-visible relative" style={{ zIndex: 1 }}>
               <div className="flex items-center justify-between mb-2">
@@ -415,7 +425,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                   <h3 className="font-bold text-sm text-slate-900">
                     {staffMember.name}
                     <span className="text-[10px] text-slate-500 ml-1.5">
-                      (max {staffMember.maxPatients} patiënten{staffMember.maxWorkTime ? `, tot ${formatTime(startMinutes + staffMember.maxWorkTime)}` : ''})
+                      (max {isCoordinator ? Math.min(getDaycoPatientsCount(), staffMember.maxPatients) : staffMember.maxPatients} patiënten{staffMember.maxWorkTime ? `, tot ${formatTime(startMinutes + staffMember.maxWorkTime)}` : ''})
                     </span>
                   </h3>
                   <div className="flex gap-3 text-[10px] text-slate-600 mt-0.5">
@@ -472,6 +482,18 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers }: 
                             />
                           ))}
                         </div>
+
+                        {clampedBreakWidth > 0 && (
+                          <div
+                            className="absolute top-0 bottom-0 bg-amber-100/70 border-l border-r border-amber-200 text-[9px] text-amber-800 font-semibold flex items-center justify-center pointer-events-none"
+                            style={{
+                              left: `${clampedBreakLeft}%`,
+                              width: `${clampedBreakWidth}%`
+                            }}
+                          >
+                            Pauze
+                          </div>
+                        )}
                         
                         {/* Gray overlay for non-working hours */}
                         {staffMember.maxWorkTime && (

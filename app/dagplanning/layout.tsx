@@ -47,10 +47,7 @@ export function useDagplanningContext() {
 
 export default function DagplanningLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    if (typeof window === 'undefined') return getTodayISO()
-    return localStorage.getItem('dagplanningSelectedDate') || getTodayISO()
-  })
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayISO())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [selectedWeekStart, setSelectedWeekStart] = useState<string>(() => {
     const today = new Date()
@@ -66,6 +63,7 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
     thursday: [],
     friday: []
   })
+  const [agreedMaxPatients, setAgreedMaxPatients] = useState<number | null>(null)
   const [coordinatorByDay, setCoordinatorByDay] = useState<Record<DayOfWeek, string | null>>({
     monday: null,
     tuesday: null,
@@ -77,6 +75,13 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
   const { patients, setPatients, fetchPatients } = usePatients(selectedDate)
   const { staffMembers, loadStaffMembers } = useStaff()
   const { workload, setWorkload } = useWorkload(patients)
+
+  useEffect(() => {
+    const storedDate = localStorage.getItem('dagplanningSelectedDate')
+    if (storedDate) {
+      setSelectedDate(storedDate)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -132,6 +137,12 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
               schedule[day] = []
             }
           })
+          if (Array.isArray(data.dayCapacities)) {
+            const match = data.dayCapacities.find((entry: any) => entry?.date === selectedDate)
+            setAgreedMaxPatients(typeof match?.agreedMaxPatients === 'number' ? match.agreedMaxPatients : null)
+          } else {
+            setAgreedMaxPatients(null)
+          }
           setStaffSchedule(schedule)
           setCoordinatorByDay(coordinators)
         } else {
@@ -142,6 +153,7 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
             thursday: [],
             friday: []
           })
+          setAgreedMaxPatients(null)
           setCoordinatorByDay({
             monday: null,
             tuesday: null,
@@ -158,6 +170,7 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
           thursday: [],
           friday: []
         })
+        setAgreedMaxPatients(null)
         setCoordinatorByDay({
           monday: null,
           tuesday: null,
@@ -175,6 +188,7 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
         thursday: [],
         friday: []
       })
+      setAgreedMaxPatients(null)
       setCoordinatorByDay({
         monday: null,
         tuesday: null,
@@ -222,7 +236,9 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
               </div>
               <div>
                 <h1 className="text-xl font-bold">Dagbehandeling 4B</h1>
-                <p className="text-[11px] text-white/80">{DAY_LABELS[currentDay]} • {selectedDate}</p>
+                <p className="text-[11px] text-white/80" suppressHydrationWarning>
+                  {DAY_LABELS[currentDay]} • {selectedDate}
+                </p>
               </div>
             </div>
             <div className="hidden md:block">
@@ -233,6 +249,7 @@ export default function DagplanningLayout({ children }: { children: ReactNode })
                 staffMembers={staffMembers}
                 assignedStaffNames={assignedNamesForDay}
                 coordinatorName={coordinatorForDay}
+                agreedMaxPatients={agreedMaxPatients}
               />
             </div>
             <div className="md:hidden text-xs text-white/80">

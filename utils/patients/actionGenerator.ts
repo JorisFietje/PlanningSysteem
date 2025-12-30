@@ -3,7 +3,7 @@ import { getMedicationById, getMedicationVariant, Medication, MedicationVariant 
 export interface GeneratedAction {
   name: string
   duration: number
-  type: 'setup' | 'infusion' | 'check' | 'removal' | 'observation' | 'flush' | 'protocol_check' | 'pc_switch' | 'custom' | 'custom_nurse'
+  type: 'setup' | 'infusion' | 'check' | 'removal' | 'observation' | 'flush' | 'pc_switch' | 'custom' | 'custom_nurse'
   actualDuration?: number
   checkOffset?: number // For checks and PC switches: minutes from START OF INFUSION (not patient start)
   description?: string
@@ -12,7 +12,6 @@ export interface GeneratedAction {
 const isNurseType = (type?: string) => {
   return (
     type === 'setup' ||
-    type === 'protocol_check' ||
     type === 'check' ||
     type === 'flush' ||
     type === 'removal' ||
@@ -38,6 +37,7 @@ export function generateActionsForMedication(
 
   if (variant.actions && variant.actions.length > 0) {
     return [...variant.actions]
+      .filter(action => action.type !== 'protocol_check')
       .sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0))
       .map((action) => {
         const rawType = (action.type as GeneratedAction['type']) || 'custom'
@@ -89,15 +89,6 @@ export function generateActionsForMedication(
     duration: setupDuration,
     type: 'setup',
     description: `${medication.displayName} voorbereiden, aansluiten en starten (${setupDuration} min)`
-  })
-
-  // 1a. Protocol Controle - TWEEDE verpleegkundige controleert binnen 2 min
-  actions.push({
-    name: 'Protocol Controle',
-    duration: 2,
-    type: 'protocol_check',
-    actualDuration: 2,
-    description: 'Tweede verpleegkundige controleert aanbrengen volgens protocol (2 min)'
   })
 
   // 2. Main Infusion
@@ -251,7 +242,9 @@ export function getTreatmentBreakdown(
   }
 
   if (variant.actions && variant.actions.length > 0) {
-    const actions = [...variant.actions].sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0))
+    const actions = [...variant.actions]
+      .filter(action => action.type !== 'protocol_check')
+      .sort((a, b) => (a.startOffset ?? 0) - (b.startOffset ?? 0))
     const totalTime = actions.reduce((max, action) => {
       const end = (action.startOffset ?? 0) + action.duration
       return Math.max(max, end)
@@ -271,7 +264,7 @@ export function getTreatmentBreakdown(
 
     return {
       vpkTime: nurseTime,
-      protocolCheckTime: typeTotals.protocol_check || 0,
+      protocolCheckTime: 0,
       infusionTime: typeTotals.infusion || 0,
       observationTime: typeTotals.observation || 0,
       flushTime: typeTotals.flush || 0,
@@ -304,12 +297,10 @@ export function getTreatmentBreakdown(
 
   // VPK tijd componenten (ONLY for infusions)
   const setupDuration = 15 // Altijd 15 minuten voor aanbrengen
-  const protocolCheckDuration = 2 // Altijd 2 minuten protocol controle door 2e VPK
   const removalDuration = 5 // Altijd 5 minuten voor afkoppelen
   
   // Bereken totale tijd: setup + protocol check + infusion + observation + flush + removal
   const calculatedTotal = setupDuration + 
-                          protocolCheckDuration +
                           timing.infusionTime + 
                           (timing.observationTime || 0) + 
                           (timing.flushTime || 0) + 
@@ -317,7 +308,7 @@ export function getTreatmentBreakdown(
 
   return {
     vpkTime: setupDuration, // Altijd 15 minuten voor aanbrengen
-    protocolCheckTime: protocolCheckDuration, // Altijd 2 minuten protocol check
+    protocolCheckTime: 0,
     infusionTime: timing.infusionTime,
     observationTime: timing.observationTime || 0,
     flushTime: timing.flushTime || 0,

@@ -37,11 +37,31 @@ export default function BehandelingenPage() {
   const [selectionWarning, setSelectionWarning] = useState('')
   const [saveMessage, setSaveMessage] = useState('')
   const [saveError, setSaveError] = useState('')
-  const [dateTreatmentCounts, setDateTreatmentCounts] = useState<Record<string, Record<string, number>>>({})
+  const [treatmentCounts, setTreatmentCounts] = useState<Record<string, number>>({})
   const [isScheduling, setIsScheduling] = useState(false)
   const [scheduleError, setScheduleError] = useState('')
-  const [scheduleResult, setScheduleResult] = useState<Array<{ date: string; startTime: string; label: string }>>([])
+  const [scheduleResult, setScheduleResult] = useState<Array<{
+    date: string
+    startTime: string
+    label: string
+    medicationId?: string
+    treatmentNumber?: number
+    patientId?: string
+  }>>([])
+  const [capacityStatus, setCapacityStatus] = useState<Record<string, { max: number | null; planned: number; remaining: number | null }>>({})
   const [scheduleSkipped, setScheduleSkipped] = useState<Array<{ label: string; reason: string }>>([])
+  const [planGroups, setPlanGroups] = useState<Array<{
+    id: string
+    createdAt: string
+    selectedDates: string[]
+    requests: Array<{ medicationId: string; treatmentNumber: number; quantity: number }>
+    scheduled: Array<{ date: string; startTime: string; label: string; medicationId?: string; treatmentNumber?: number; patientId?: string }>
+    skipped: Array<{ label: string; reason: string }>
+    patientIds: string[]
+  }>>([])
+  const [collapsedPlanGroups, setCollapsedPlanGroups] = useState<Record<string, boolean>>({})
+  const [isCapacityCollapsed, setIsCapacityCollapsed] = useState(false)
+  const [isScheduleCollapsed, setIsScheduleCollapsed] = useState(false)
 
   const selectedSet = useMemo(() => new Set(selectedDates), [selectedDates])
 
@@ -62,6 +82,14 @@ export default function BehandelingenPage() {
   }
 
   const getDateISO = (day: number) => formatDateToISO(new Date(currentYear, currentMonth, day))
+  const formatDateDMY = (value: string) => {
+    const date = new Date(value + 'T00:00:00')
+    if (Number.isNaN(date.getTime())) return value
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    return `${day}-${month}-${year}`
+  }
 
   const applyRange = (base: Set<string>, startDay: number, endDay: number, mode: DragMode) => {
     const next = new Set(base)
@@ -112,6 +140,18 @@ export default function BehandelingenPage() {
     setMedications(getAllMedications())
   }, [])
 
+  const normalizeTreatmentCounts = (input: unknown) => {
+    if (!input || typeof input !== 'object') return {}
+    const next: Record<string, number> = {}
+    Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
+      const numeric = typeof value === 'number' ? value : parseInt(String(value), 10)
+      if (Number.isFinite(numeric) && numeric > 0) {
+        next[key] = numeric
+      }
+    })
+    return next
+  }
+
   useEffect(() => {
     try {
       const stored = localStorage.getItem('selectedTreatmentsByDate')
@@ -120,8 +160,19 @@ export default function BehandelingenPage() {
       if (Array.isArray(parsed.selectedDates)) {
         setSelectedDates(parsed.selectedDates)
       }
-      if (parsed.dateTreatmentCounts && typeof parsed.dateTreatmentCounts === 'object') {
-        setDateTreatmentCounts(parsed.dateTreatmentCounts)
+      if (parsed.treatmentCounts && typeof parsed.treatmentCounts === 'object') {
+        setTreatmentCounts(normalizeTreatmentCounts(parsed.treatmentCounts))
+      } else if (parsed.dateTreatmentCounts && typeof parsed.dateTreatmentCounts === 'object') {
+        const aggregated: Record<string, number> = {}
+        Object.values(parsed.dateTreatmentCounts).forEach((perDate: any) => {
+          if (!perDate || typeof perDate !== 'object') return
+          Object.entries(perDate).forEach(([id, count]) => {
+            const numeric = typeof count === 'number' ? count : parseInt(String(count), 10)
+            if (!Number.isFinite(numeric)) return
+            aggregated[id] = Math.max(aggregated[id] || 0, numeric)
+          })
+        })
+        setTreatmentCounts(normalizeTreatmentCounts(aggregated))
       }
     } catch (error) {
       console.error('Failed to load stored selections', error)
@@ -136,6 +187,31 @@ export default function BehandelingenPage() {
     } catch (error) {
       console.error('Failed to load scheduled treatments', error)
     }
+    try {
+      const storedGroups = localStorage.getItem('planGroups')
+      if (!storedGroups) return
+      const parsedGroups = JSON.parse(storedGroups)
+      if (Array.isArray(parsedGroups)) {
+        const normalized = parsedGroups.map((group: any) => ({
+          ...group,
+          requests: Array.isArray(group.requests) ? group.requests : [],
+          patientIds: Array.isArray(group.patientIds) ? group.patientIds : []
+        }))
+        setPlanGroups(normalized)
+      }
+    } catch (error) {
+      console.error('Failed to load plan groups', error)
+    }
+    try {
+      const storedCollapsed = localStorage.getItem('planGroupsCollapsed')
+      if (!storedCollapsed) return
+      const parsedCollapsed = JSON.parse(storedCollapsed)
+      if (parsedCollapsed && typeof parsedCollapsed === 'object') {
+        setCollapsedPlanGroups(parsedCollapsed)
+      }
+    } catch (error) {
+      console.error('Failed to load plan groups collapsed state', error)
+    }
   }, [])
 
   useEffect(() => {
@@ -143,7 +219,7 @@ export default function BehandelingenPage() {
     try {
       const payload = {
         selectedDates,
-        dateTreatmentCounts
+        treatmentCounts
       }
       localStorage.setItem('selectedTreatmentsByDate', JSON.stringify(payload))
       setSaveMessage('Selecties automatisch opgeslagen.')
@@ -153,7 +229,83 @@ export default function BehandelingenPage() {
       setSaveError('Automatisch opslaan mislukt.')
       setSaveMessage('')
     }
-  }, [isMounted, selectedDates, dateTreatmentCounts])
+  }, [isMounted, selectedDates, treatmentCounts])
+
+  useEffect(() => {
+    if (!isMounted) return
+    try {
+      localStorage.setItem('planGroups', JSON.stringify(planGroups))
+    } catch (error) {
+      console.error('Failed to save plan groups', error)
+    }
+  }, [isMounted, planGroups])
+
+  useEffect(() => {
+    if (!isMounted) return
+    try {
+      localStorage.setItem('planGroupsCollapsed', JSON.stringify(collapsedPlanGroups))
+    } catch (error) {
+      console.error('Failed to save plan groups collapsed state', error)
+    }
+  }, [isMounted, collapsedPlanGroups])
+
+  useEffect(() => {
+    if (selectedDates.length === 0) {
+      setCapacityStatus({})
+      return
+    }
+
+    let isActive = true
+    const loadCapacity = async () => {
+      try {
+        const weekStarts = Array.from(new Set(selectedDates.map(date => getMondayOfWeek(date))))
+        const weekPlans = await Promise.all(
+          weekStarts.map(async weekStart => {
+            const response = await fetch(`/api/weekplan?weekStart=${weekStart}`)
+            if (!response.ok) return null
+            return response.json()
+          })
+        )
+        const maxByDate: Record<string, number | null> = {}
+        weekPlans.forEach(plan => {
+          if (!plan?.dayCapacities) return
+          plan.dayCapacities.forEach((entry: any) => {
+            if (entry?.date && entry.agreedMaxPatients !== undefined) {
+              maxByDate[entry.date] = entry.agreedMaxPatients ?? null
+            }
+          })
+        })
+
+        const plannedCounts = await Promise.all(
+          selectedDates.map(async date => {
+            const response = await fetch(`/api/patients?date=${date}`)
+            if (!response.ok) return { date, planned: 0 }
+            const patients = await response.json() as Patient[]
+            return { date, planned: patients.length }
+          })
+        )
+
+        if (!isActive) return
+        const next: Record<string, { max: number | null; planned: number; remaining: number | null }> = {}
+        plannedCounts.forEach(({ date, planned }) => {
+          const max = maxByDate[date] ?? null
+          next[date] = {
+            max,
+            planned,
+            remaining: max !== null ? Math.max(max - planned, 0) : null
+          }
+        })
+        setCapacityStatus(next)
+      } catch (error) {
+        console.error('Failed to load capacity status', error)
+      }
+    }
+
+    loadCapacity()
+    return () => {
+      isActive = false
+    }
+  }, [selectedDates])
 
   const treatments = useMemo(() => {
     const colorOverrides: Record<string, string> = {
@@ -210,22 +362,23 @@ export default function BehandelingenPage() {
 
   const activeDateForBadge = selectedDates[0]
 
+  const formatGroupTimestamp = (value: string) => {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    const day = String(date.getDate()).padStart(2, '0')
+    const month = String(date.getMonth() + 1).padStart(2, '0')
+    const year = date.getFullYear()
+    const hours = String(date.getHours()).padStart(2, '0')
+    const minutes = String(date.getMinutes()).padStart(2, '0')
+    return `${day}-${month}-${year} ${hours}:${minutes}`
+  }
+
   const buildTreatmentRequests = () => {
     if (selectedDates.length === 0) return []
     const counts: Record<string, number> = {}
-    if (selectedDates.length === 1) {
-      const date = selectedDates[0]
-      Object.entries(dateTreatmentCounts[date] || {}).forEach(([id, count]) => {
-        counts[id] = (counts[id] || 0) + count
-      })
-    } else {
-      selectedDates.forEach(date => {
-        const perDate = dateTreatmentCounts[date] || {}
-        Object.entries(perDate).forEach(([id, count]) => {
-          counts[id] = Math.max(counts[id] || 0, count)
-        })
-      })
-    }
+    Object.entries(treatmentCounts).forEach(([id, count]) => {
+      counts[id] = (counts[id] || 0) + count
+    })
 
     return Object.entries(counts)
       .filter(([, count]) => count > 0)
@@ -238,6 +391,87 @@ export default function BehandelingenPage() {
         }
       })
       .filter(item => item.medicationId && Number.isFinite(item.treatmentNumber))
+  }
+
+  const totalSelectedTreatments = useMemo(() => {
+    if (selectedDates.length === 0) return 0
+    return treatments.reduce((sum, treatment) => {
+      const count = treatmentCounts[treatment.id] || 0
+      return sum + (Number.isFinite(count) ? count : 0)
+    }, 0)
+  }, [selectedDates, treatmentCounts, treatments])
+
+  const buildSchedulingContext = async (dates: string[]) => {
+    const existingPatientsByDate: Record<string, Patient[]> = {}
+    const responses = await Promise.all(
+      dates.map(async date => {
+        const response = await fetch(`/api/patients?date=${date}`)
+        if (!response.ok) {
+          return { date, patients: [] }
+        }
+        const patients = await response.json() as Patient[]
+        return { date, patients }
+      })
+    )
+
+    responses.forEach(({ date, patients }) => {
+      existingPatientsByDate[date] = patients
+    })
+
+    const weekStarts = Array.from(new Set(dates.map(date => getMondayOfWeek(date))))
+    const dayCapacityLimits: Record<string, number | null | undefined> = {}
+    const weekPlans = await Promise.all(
+      weekStarts.map(async weekStart => {
+        const response = await fetch(`/api/weekplan?weekStart=${weekStart}`)
+        if (!response.ok) return null
+        return response.json()
+      })
+    )
+    weekPlans.forEach(plan => {
+      if (!plan?.dayCapacities) return
+      plan.dayCapacities.forEach((entry: any) => {
+        if (entry?.date && entry.agreedMaxPatients !== undefined) {
+          dayCapacityLimits[entry.date] = entry.agreedMaxPatients
+        }
+      })
+    })
+
+    const defaultSchedule = buildScheduleFromWorkDays(staffMembers)
+    const staffMembersByDate: Record<string, StaffMember[]> = {}
+    const coordinatorByDate: Record<string, string | null> = {}
+
+    dates.forEach(date => {
+      const weekStart = getMondayOfWeek(date)
+      const plan = weekPlans.find(p => p?.weekStartDate === weekStart || p?.weekStart === weekStart)
+      const schedule: Record<string, string[]> = { ...defaultSchedule }
+      const coordinators: Record<string, string | null> = { ...coordinatorByDay }
+      if (plan?.staffSchedules) {
+        plan.staffSchedules.forEach((s: any) => {
+          const day = s.dayOfWeek
+          try {
+            const parsed = JSON.parse(s.staffNames)
+            if (Array.isArray(parsed)) {
+              schedule[day] = parsed
+            } else {
+              schedule[day] = parsed?.staff || []
+              coordinators[day] = parsed?.coordinator || null
+            }
+          } catch {
+            schedule[day] = []
+          }
+        })
+      }
+      const day = getDayOfWeekFromDate(date)
+      const names = schedule[day] || []
+      const coordinatorName = coordinators[day] || null
+      const allNames = coordinatorName && !names.includes(coordinatorName)
+        ? [...names, coordinatorName]
+        : names
+      staffMembersByDate[date] = allNames.length > 0 ? staffMembers.filter(member => allNames.includes(member.name)) : []
+      coordinatorByDate[date] = coordinatorName
+    })
+
+    return { existingPatientsByDate, dayCapacityLimits, staffMembersByDate, coordinatorByDate }
   }
 
   const handleAutoSchedule = async () => {
@@ -258,94 +492,16 @@ export default function BehandelingenPage() {
     setScheduleSkipped([])
 
     try {
-      const existingPatientsByDate: Record<string, Patient[]> = {}
-      const responses = await Promise.all(
-        selectedDates.map(async date => {
-          const response = await fetch(`/api/patients?date=${date}`)
-          if (!response.ok) {
-            return { date, patients: [] }
-          }
-          const patients = await response.json() as Patient[]
-          return { date, patients }
-        })
-      )
-
-      responses.forEach(({ date, patients }) => {
-        existingPatientsByDate[date] = patients
-      })
-
-      const weekStarts = Array.from(new Set(selectedDates.map(date => getMondayOfWeek(date))))
-      const dayCapacityLimits: Record<string, number | null | undefined> = {}
-      const weekPlans = await Promise.all(
-        weekStarts.map(async weekStart => {
-          const response = await fetch(`/api/weekplan?weekStart=${weekStart}`)
-          if (!response.ok) return null
-          return response.json()
-        })
-      )
-      weekPlans.forEach(plan => {
-        if (!plan?.dayCapacities) return
-        plan.dayCapacities.forEach((entry: any) => {
-          if (entry?.date && entry.agreedMaxPatients !== undefined) {
-            dayCapacityLimits[entry.date] = entry.agreedMaxPatients
-          }
-        })
-      })
-
-      const defaultSchedule = buildScheduleFromWorkDays(staffMembers)
-      const staffMembersByDate: Record<string, StaffMember[]> = {}
-      const coordinatorByDate: Record<string, string | null> = {}
-
-      selectedDates.forEach(date => {
-        const weekStart = getMondayOfWeek(date)
-        const plan = weekPlans.find(p => p?.weekStartDate === weekStart || p?.weekStart === weekStart)
-        const schedule: Record<string, string[]> = { ...defaultSchedule }
-        const coordinators: Record<string, string | null> = { ...coordinatorByDay }
-        if (plan?.staffSchedules) {
-          plan.staffSchedules.forEach((s: any) => {
-            const day = s.dayOfWeek
-            try {
-              const parsed = JSON.parse(s.staffNames)
-              if (Array.isArray(parsed)) {
-                schedule[day] = parsed
-              } else {
-                schedule[day] = parsed?.staff || []
-                coordinators[day] = parsed?.coordinator || null
-              }
-            } catch {
-              schedule[day] = []
-            }
-          })
-        }
-        const day = getDayOfWeekFromDate(date)
-        const names = schedule[day] || []
-        staffMembersByDate[date] = names.length > 0 ? staffMembers.filter(member => names.includes(member.name)) : []
-        coordinatorByDate[date] = coordinators[day] || null
-      })
-
-      const existingCounts = Object.values(existingPatientsByDate).flat().reduce<Record<string, number>>((acc, patient) => {
-        const key = `${patient.medicationType}-${patient.treatmentNumber}`
-        acc[key] = (acc[key] || 0) + 1
-        return acc
-      }, {})
-
-      const remainingRequests = treatmentRequests
-        .map(request => {
-          const key = `${request.medicationId}-${request.treatmentNumber}`
-          const remaining = Math.max(0, request.quantity - (existingCounts[key] || 0))
-          return { ...request, quantity: remaining }
-        })
-        .filter(request => request.quantity > 0)
-
-      if (remainingRequests.length === 0) {
-        setScheduleError('Alle geselecteerde behandelingen staan al ingepland op deze datums.')
-        setIsScheduling(false)
-        return
-      }
+      const {
+        existingPatientsByDate,
+        dayCapacityLimits,
+        staffMembersByDate,
+        coordinatorByDate
+      } = await buildSchedulingContext(selectedDates)
 
       const plan = scheduleTreatmentsAcrossDates(
         selectedDates,
-        remainingRequests,
+        treatmentRequests,
         staffMembersByDate,
         coordinatorByDate,
         existingPatientsByDate,
@@ -353,8 +509,9 @@ export default function BehandelingenPage() {
       )
 
       const medications = getAllMedications()
-      const scheduledDisplay: Array<{ date: string; startTime: string; label: string }> = []
+      const scheduledDisplay: Array<{ date: string; startTime: string; label: string; medicationId?: string; treatmentNumber?: number; patientId?: string }> = []
       const skippedDisplay: Array<{ label: string; reason: string }> = []
+      const scheduledPatientIds: string[] = []
 
       for (const item of plan.scheduled) {
         const medication = medications.find(med => med.id === item.medicationId)
@@ -394,7 +551,15 @@ export default function BehandelingenPage() {
           })
         }
 
-        scheduledDisplay.push({ date: item.date, startTime: item.startTime, label })
+        scheduledPatientIds.push(patient.id)
+        scheduledDisplay.push({
+          date: item.date,
+          startTime: item.startTime,
+          label,
+          medicationId: item.medicationId,
+          treatmentNumber: item.treatmentNumber,
+          patientId: patient.id
+        })
       }
 
       plan.skipped.forEach(item => {
@@ -410,14 +575,185 @@ export default function BehandelingenPage() {
 
       setScheduleResult(scheduledDisplay)
       setScheduleSkipped(skippedDisplay)
+      const groupId = `${Date.now()}`
+      setPlanGroups(prev => ([
+        {
+          id: groupId,
+          createdAt: new Date().toISOString(),
+          selectedDates: [...selectedDates],
+          requests: treatmentRequests,
+          scheduled: scheduledDisplay,
+          skipped: skippedDisplay,
+          patientIds: scheduledPatientIds
+        },
+        ...prev
+      ]))
+      setCollapsedPlanGroups(prev => ({
+        ...prev,
+        [groupId]: true
+      }))
+      try {
+        localStorage.setItem('scheduledTreatments', JSON.stringify(scheduledDisplay))
+      } catch (error) {
+        console.error('Failed to save scheduled treatments', error)
+      }
+
+      if (plan.skipped.length > 0) {
+        const remainingByType: Record<string, number> = {}
+        plan.skipped.forEach(item => {
+          const key = `${item.medicationId}-${item.treatmentNumber}`
+          remainingByType[key] = (remainingByType[key] || 0) + 1
+        })
+        setTreatmentCounts(() => {
+          const next: Record<string, number> = {}
+          treatments.forEach(treatment => {
+            const typeKey = `${treatment.medicationId}-${treatment.treatmentNumber}`
+            const remaining = remainingByType[typeKey] ?? 0
+            if (remaining > 0) {
+              next[treatment.id] = remaining
+            }
+          })
+          return Object.keys(next).length > 0 ? next : {}
+        })
+        setSelectionWarning('Niet alles kon ingepland worden. Selecteer extra datums om verder te plannen.')
+        setSaveMessage('')
+      } else {
+        setSelectedDates([])
+        setTreatmentCounts({})
+        setSelectionWarning('')
+        setSaveMessage('')
+      }
+    } catch (error) {
+      console.error('Failed to auto schedule treatments', error)
+      setScheduleError('Automatisch inplannen mislukt.')
+    } finally {
+      setIsScheduling(false)
+    }
+  }
+
+  const handleRescheduleGroup = async (groupId: string) => {
+    const group = planGroups.find(item => item.id === groupId)
+    if (!group) return
+    if (!group.requests || group.requests.length === 0) {
+      setScheduleError('Deze plangroep heeft geen opgeslagen behandelingen om opnieuw in te plannen.')
+      return
+    }
+
+    setIsScheduling(true)
+    setScheduleError('')
+    setScheduleResult([])
+    setScheduleSkipped([])
+
+    try {
+      if (group.patientIds && group.patientIds.length > 0) {
+        await fetch('/api/patients/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: group.patientIds })
+        })
+      }
+
+      const {
+        existingPatientsByDate,
+        dayCapacityLimits,
+        staffMembersByDate,
+        coordinatorByDate
+      } = await buildSchedulingContext(group.selectedDates)
+
+      const plan = scheduleTreatmentsAcrossDates(
+        group.selectedDates,
+        group.requests,
+        staffMembersByDate,
+        coordinatorByDate,
+        existingPatientsByDate,
+        dayCapacityLimits
+      )
+
+      const medications = getAllMedications()
+      const scheduledDisplay: Array<{ date: string; startTime: string; label: string; medicationId?: string; treatmentNumber?: number; patientId?: string }> = []
+      const skippedDisplay: Array<{ label: string; reason: string }> = []
+      const scheduledPatientIds: string[] = []
+
+      for (const item of plan.scheduled) {
+        const medication = medications.find(med => med.id === item.medicationId)
+        const label = `${medication?.displayName || item.medicationId} (${item.treatmentNumber}e)`
+        const patientName = `Patiënt - ${label}`
+
+        const patientResponse = await fetch('/api/patients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: patientName,
+            startTime: item.startTime,
+            scheduledDate: item.date,
+            medicationType: item.medicationId,
+            treatmentNumber: item.treatmentNumber
+          })
+        })
+
+        if (!patientResponse.ok) {
+          skippedDisplay.push({ label, reason: 'Kon patiënt niet aanmaken' })
+          continue
+        }
+
+        const patient = await patientResponse.json()
+        for (const action of item.actions) {
+          await fetch('/api/actions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: action.name,
+              duration: action.duration,
+              staff: action.staff,
+              type: action.type,
+              actualDuration: action.actualDuration,
+              patientId: patient.id
+            })
+          })
+        }
+
+        scheduledPatientIds.push(patient.id)
+        scheduledDisplay.push({
+          date: item.date,
+          startTime: item.startTime,
+          label,
+          medicationId: item.medicationId,
+          treatmentNumber: item.treatmentNumber,
+          patientId: patient.id
+        })
+      }
+
+      plan.skipped.forEach(item => {
+        const medication = medications.find(med => med.id === item.medicationId)
+        const label = `${medication?.displayName || item.medicationId} (${item.treatmentNumber}e)`
+        skippedDisplay.push({ label, reason: item.reason })
+      })
+
+      scheduledDisplay.sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date)
+        return a.startTime.localeCompare(b.startTime)
+      })
+
+      setScheduleResult(scheduledDisplay)
+      setScheduleSkipped(skippedDisplay)
+      setPlanGroups(prev => prev.map(item => (
+        item.id === groupId
+          ? {
+              ...item,
+              scheduled: scheduledDisplay,
+              skipped: skippedDisplay,
+              patientIds: scheduledPatientIds
+            }
+          : item
+      )))
       try {
         localStorage.setItem('scheduledTreatments', JSON.stringify(scheduledDisplay))
       } catch (error) {
         console.error('Failed to save scheduled treatments', error)
       }
     } catch (error) {
-      console.error('Failed to auto schedule treatments', error)
-      setScheduleError('Automatisch inplannen mislukt.')
+      console.error('Failed to reschedule plan group', error)
+      setScheduleError('Opnieuw inplannen mislukt.')
     } finally {
       setIsScheduling(false)
     }
@@ -431,15 +767,10 @@ export default function BehandelingenPage() {
     setSelectionWarning('')
     setSaveMessage('')
     setSaveError('')
-    setDateTreatmentCounts(prev => {
-      const next = { ...prev }
-      selectedDates.forEach(date => {
-        const current = next[date] ? { ...next[date] } : {}
-        current[treatmentId] = (current[treatmentId] || 0) + 1
-        next[date] = current
-      })
-      return next
-    })
+    setTreatmentCounts(prev => ({
+      ...prev,
+      [treatmentId]: (prev[treatmentId] || 0) + 1
+    }))
   }
 
   const decrementTreatment = (treatmentId: string) => {
@@ -450,22 +781,14 @@ export default function BehandelingenPage() {
     setSelectionWarning('')
     setSaveMessage('')
     setSaveError('')
-    setDateTreatmentCounts(prev => {
+    setTreatmentCounts(prev => {
       const next = { ...prev }
-      selectedDates.forEach(date => {
-        const current = next[date] ? { ...next[date] } : {}
-        const currentCount = current[treatmentId] || 0
-        if (currentCount <= 1) {
-          delete current[treatmentId]
-        } else {
-          current[treatmentId] = currentCount - 1
-        }
-        if (Object.keys(current).length === 0) {
-          delete next[date]
-        } else {
-          next[date] = current
-        }
-      })
+      const currentCount = next[treatmentId] || 0
+      if (currentCount <= 1) {
+        delete next[treatmentId]
+      } else {
+        next[treatmentId] = currentCount - 1
+      }
       return next
     })
   }
@@ -489,7 +812,7 @@ export default function BehandelingenPage() {
         </div>
         {selectedDates.length > 0 && (
           <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full">
-            {selectedDates.length} datum(s) geselecteerd
+            {selectedDates.length} datum(s) geselecteerd • {totalSelectedTreatments} behandeling(en)
           </div>
         )}
       </div>
@@ -570,23 +893,140 @@ export default function BehandelingenPage() {
           {selectionWarning && (
             <div className="mt-3 text-xs text-red-700">{selectionWarning}</div>
           )}
+          {selectedDates.length > 0 && (
+            <div className="mt-3 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md p-2">
+              <button
+                onClick={() => setIsCapacityCollapsed(prev => !prev)}
+                className="w-full flex items-center justify-between font-semibold text-slate-800"
+              >
+                <span>Capaciteit per geselecteerde datum</span>
+                <span className="text-slate-500">{isCapacityCollapsed ? '▸' : '▾'}</span>
+              </button>
+              {!isCapacityCollapsed && (
+                <div className="grid grid-cols-[110px_1fr] gap-2 mt-2">
+                  {selectedDates.map(date => {
+                    const status = capacityStatus[date]
+                    if (!status) {
+                      return (
+                        <div key={date} className="contents">
+                          <div>{formatDateDMY(date)}</div>
+                          <div className="text-slate-500">Capaciteit laden...</div>
+                        </div>
+                      )
+                    }
+                    return (
+                      <div key={date} className="contents">
+                        <div>{formatDateDMY(date)}</div>
+                        <div>
+                          {status.max === null
+                            ? `${status.planned} gepland • max onbekend`
+                            : `${status.planned} gepland • ${status.remaining} over (max ${status.max})`}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
           {visibleScheduleResult.length > 0 && (
             <div className="mt-3 text-xs text-slate-700 bg-emerald-50 border border-emerald-200 rounded-md p-2">
-              <div className="font-semibold text-emerald-800 mb-1">Geplande behandelingen</div>
-              <div className="grid grid-cols-[90px_60px_1fr] gap-2">
-                {visibleScheduleResult.map((item, index) => (
-                  <div key={`${item.date}-${item.startTime}-${index}`} className="contents">
-                    <div>{item.date}</div>
-                    <div>{item.startTime}</div>
-                    <div>{item.label}</div>
-                  </div>
-                ))}
-              </div>
+              <button
+                onClick={() => setIsScheduleCollapsed(prev => !prev)}
+                className="w-full flex items-center justify-between font-semibold text-emerald-800"
+              >
+                <span>Geplande behandelingen</span>
+                <span className="text-emerald-600">{isScheduleCollapsed ? '▸' : '▾'}</span>
+              </button>
+              {!isScheduleCollapsed && (
+                <div className="grid grid-cols-[110px_60px_1fr] gap-2 mt-2">
+                  {visibleScheduleResult.map((item, index) => (
+                    <div key={`${item.date}-${item.startTime}-${index}`} className="contents">
+                      <div>{formatDateDMY(item.date)}</div>
+                      <div>{item.startTime}</div>
+                      <div>{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <div className="flex flex-col gap-2 overflow-hidden col-span-full sm:col-start-3 sm:col-end-[-1] sm:row-start-1 sm:row-end-[-1]">
+          <div className="border border-slate-200 rounded-xl p-3 bg-white/80">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-slate-900">Plangroepen</h3>
+              <span className="text-xs text-slate-500">{planGroups.length} gepland</span>
+            </div>
+            {planGroups.length === 0 ? (
+              <div className="text-xs text-slate-500 mt-2">Nog geen plangroepen aangemaakt.</div>
+            ) : (
+              <div className="mt-3 space-y-3 max-h-[240px] overflow-auto pr-1">
+                {planGroups.map(group => (
+                  <div key={group.id} className="border border-slate-200 rounded-lg p-3 bg-white">
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => setCollapsedPlanGroups(prev => ({ ...prev, [group.id]: !prev[group.id] }))}
+                        className="flex items-center gap-2 text-xs font-semibold text-slate-700"
+                      >
+                        <span className="text-slate-500">{collapsedPlanGroups[group.id] ? '▸' : '▾'}</span>
+                        Aangemaakt: {formatGroupTimestamp(group.createdAt)}
+                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-slate-500">{group.selectedDates.length} datum(s)</span>
+                        <button
+                          onClick={() => handleRescheduleGroup(group.id)}
+                          className="text-[11px] text-emerald-600 hover:text-emerald-700 disabled:text-slate-300"
+                          disabled={isScheduling || !group.requests || group.requests.length === 0}
+                        >
+                          Opnieuw inplannen
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPlanGroups(prev => prev.filter(item => item.id !== group.id))
+                            setCollapsedPlanGroups(prev => {
+                              const next = { ...prev }
+                              delete next[group.id]
+                              return next
+                            })
+                          }}
+                          className="text-[11px] text-rose-600 hover:text-rose-700"
+                        >
+                          Verwijderen
+                        </button>
+                      </div>
+                    </div>
+                    {!collapsedPlanGroups[group.id] && (
+                      <>
+                        {group.scheduled.length > 0 ? (
+                          <div className="mt-2 text-[11px] text-slate-700 grid grid-cols-[90px_60px_1fr] gap-2">
+                            {group.scheduled.map((item, index) => (
+                              <div key={`${group.id}-${item.date}-${item.startTime}-${index}`} className="contents">
+                                <div>{item.date}</div>
+                                <div>{item.startTime}</div>
+                                <div>{item.label}</div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-400 mt-2">Geen behandelingen ingepland.</div>
+                        )}
+                        {group.skipped.length > 0 && (
+                          <div className="mt-2 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                            <div className="font-semibold text-amber-800 mb-1">Niet ingepland</div>
+                            {group.skipped.map((item, index) => (
+                              <div key={`${group.id}-skip-${index}`}>{item.label} — {item.reason}</div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="flex items-center justify-between">
             <h3 className="text-base font-semibold text-slate-900">Behandelingen selecteren</h3>
             <div className="flex items-center gap-3">
@@ -595,6 +1035,7 @@ export default function BehandelingenPage() {
                   <button
                     onClick={() => {
                       setSelectedDates([])
+                      setTreatmentCounts({})
                       setSelectionWarning('')
                       setSaveMessage('')
                       setSaveError('')
@@ -637,7 +1078,7 @@ export default function BehandelingenPage() {
           <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-1.5 overflow-auto">
             {treatments.map(treatment => {
               const badgeCount = activeDateForBadge
-                ? dateTreatmentCounts[activeDateForBadge]?.[treatment.id] || 0
+                ? treatmentCounts[treatment.id] || 0
                 : 0
               const accent = colorClasses[treatment.color] || colorClasses.slate
               return (

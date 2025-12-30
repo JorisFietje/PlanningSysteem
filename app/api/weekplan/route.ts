@@ -57,6 +57,16 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const { weekStartDate, weekEndDate, staffSchedules, treatments } = body
 
+    const normalizedStaffSchedules = Array.isArray(staffSchedules)
+      ? Array.from(
+          staffSchedules.reduce((map: Map<string, any>, entry: any) => {
+            if (!entry?.dayOfWeek) return map
+            map.set(entry.dayOfWeek, entry)
+            return map
+          }, new Map()).values()
+        )
+      : []
+
     if (!weekStartDate || !weekEndDate) {
       return NextResponse.json(
         { error: 'weekStartDate and weekEndDate are required' },
@@ -71,10 +81,7 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       // Update existing week plan
-      // Delete old staff schedules and treatments
-      await prisma.weekStaffSchedule.deleteMany({
-        where: { weekPlanId: existing.id }
-      })
+      // Delete old treatments (staff schedules handled in nested update)
       await prisma.weekTreatment.deleteMany({
         where: { weekPlanId: existing.id }
       })
@@ -85,10 +92,14 @@ export async function POST(request: NextRequest) {
         data: {
           weekEndDate,
           staffSchedules: {
-            create: staffSchedules?.map((s: any) => ({
-              dayOfWeek: s.dayOfWeek,
-              staffNames: s.staffNames
-            })) || []
+            deleteMany: {},
+            createMany: {
+              data: normalizedStaffSchedules.map((s: any) => ({
+                dayOfWeek: s.dayOfWeek,
+                staffNames: s.staffNames
+              })),
+              skipDuplicates: true
+            }
           },
           treatments: {
             create: treatments?.map((t: any) => ({
@@ -112,10 +123,10 @@ export async function POST(request: NextRequest) {
           weekStartDate,
           weekEndDate,
           staffSchedules: {
-            create: staffSchedules?.map((s: any) => ({
+            create: normalizedStaffSchedules.map((s: any) => ({
               dayOfWeek: s.dayOfWeek,
               staffNames: s.staffNames
-            })) || []
+            }))
           },
           treatments: {
             create: treatments?.map((t: any) => ({

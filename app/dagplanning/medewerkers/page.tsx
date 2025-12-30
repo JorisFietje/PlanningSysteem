@@ -15,6 +15,7 @@ export default function MedewerkersPage() {
     patients,
     staffMembers,
     staffSchedule,
+    coordinatorByDay,
   } = useDagplanningContext()
 
   const day = getDayOfWeekFromDate(selectedDate)
@@ -49,8 +50,14 @@ export default function MedewerkersPage() {
     })
   }, [staffMembers, rampOccurrencesByDate, rampSchedules, selectedDate])
 
-  const filteredStaff = (names && names.length > 0)
-    ? adjustedStaffMembers.filter(s => names.includes(s.name))
+  const coordinatorForDay = coordinatorByDay[day] || null
+  const displayNames = coordinatorForDay && (!names || !names.includes(coordinatorForDay))
+    ? [...(names || []), coordinatorForDay]
+    : names
+  const filteredStaff = (displayNames && displayNames.length > 0)
+    ? displayNames
+        .map(name => adjustedStaffMembers.find(member => member.name === name))
+        .filter(Boolean)
     : []
 
   return (
@@ -67,6 +74,7 @@ export default function MedewerkersPage() {
           patients={patients}
           selectedDate={selectedDate}
           staffMembers={filteredStaff}
+          coordinatorName={coordinatorForDay}
         />
       </div>
     </div>

@@ -98,7 +98,6 @@ const isNurseAction = (actionType?: string, nurseFlag?: boolean, hasStaff?: bool
   if (!actionType && hasStaff) return true
   return (
     actionType === 'setup' ||
-    actionType === 'protocol_check' ||
     actionType === 'check' ||
     actionType === 'flush' ||
     actionType === 'removal' ||
@@ -162,7 +161,22 @@ const extractExistingTasks = (patients: Patient[], availableStaff: Set<string>) 
         continue
       }
 
+      if (inferredType !== 'setup') {
+        currentMinutes += action.duration
+        continue
+      }
+
       if (!actionStaff || !availableStaff.has(actionStaff)) {
+        const effectiveDuration = action.actualDuration || action.duration
+        const actionStartHours = Math.floor(startMinutesForAction / 60)
+        const actionStartMins = startMinutesForAction % 60
+        const actionStartTime = `${actionStartHours.toString().padStart(2, '0')}:${actionStartMins.toString().padStart(2, '0')}`
+        tasks.push({
+          staff: '__ONBEKEND__',
+          startTime: actionStartTime,
+          duration: effectiveDuration,
+          type: inferredType || 'setup'
+        })
         currentMinutes += action.duration
         continue
       }
@@ -202,6 +216,7 @@ const simulateAssignment = (
   let setupStaff: string | null = null
   let resolvedStartTime = slot
   let chairReserved = false
+  let breakPenalty = 0
 
   let infusionOffsetMinutes = 0
   let cumulativeMinutesForInfusion = 0
@@ -242,6 +257,13 @@ const simulateAssignment = (
     const actionStartMins = startMinutesForAction % 60
     const actionStartTime = `${actionStartHours.toString().padStart(2, '0')}:${actionStartMins.toString().padStart(2, '0')}`
     const effectiveDuration = action.actualDuration || action.duration
+    if (isNurseAction(action.type, action.nurseAction, true)) {
+      const breakStart = 12 * 60
+      const breakEnd = 13 * 60
+      if (startMinutesForAction < breakEnd && (startMinutesForAction + effectiveDuration) > breakStart) {
+        breakPenalty += 1
+      }
+    }
 
     let staff = 'Systeem'
 
@@ -271,15 +293,25 @@ const simulateAssignment = (
       setupStaff = staff
       newTasks.push({ staff, startTime: actualStartTime, duration: action.duration, type: action.type })
     } else if (action.type === 'protocol_check') {
-      const assignment = scheduler.assignStaffForAction(action.type || 'protocol_check', effectiveDuration, actionStartTime, setupStaff || undefined)
-      if (assignment.staff === 'GEEN') {
-        return null
+      let assignment = scheduler.assignStaffForAction(action.type || 'protocol_check', effectiveDuration, actionStartTime)
+      if (assignment.staff === 'GEEN' || assignment.wasDelayed) {
+        assignment = scheduler.assignStaffForActionRelaxed(action.type || 'protocol_check', effectiveDuration, actionStartTime)
       }
-      staff = assignment.staff
+      if (assignment.staff === 'GEEN' || assignment.wasDelayed) {
+        if (!setupStaff) {
+          return null
+        }
+        staff = setupStaff
+      } else {
+        staff = assignment.staff
+      }
       newTasks.push({ staff, startTime: actionStartTime, duration: effectiveDuration, type: action.type })
     } else if (action.type === 'check' || action.type === 'pc_switch' || action.type === 'flush' || action.type === 'removal' || action.type === 'custom_nurse') {
-      const assignment = scheduler.assignStaffForAction(action.type || 'other', effectiveDuration, actionStartTime)
-      if (assignment.staff === 'GEEN') {
+      let assignment = scheduler.assignStaffForAction(action.type || 'other', effectiveDuration, actionStartTime)
+      if (assignment.staff === 'GEEN' || assignment.wasDelayed) {
+        assignment = scheduler.assignStaffForActionRelaxed(action.type || 'other', effectiveDuration, actionStartTime)
+      }
+      if (assignment.staff === 'GEEN' || assignment.wasDelayed) {
         return null
       }
       staff = assignment.staff
@@ -303,6 +335,13 @@ const simulateAssignment = (
     }
   }
 
+  const combinedTasks = [...dayContext.tasks, ...newTasks]
+  const startResolvedMinutes = (() => {
+    const [h, m] = resolvedStartTime.split(':').map(Number)
+    return h * 60 + m
+  })()
+  const endResolvedMinutes = startResolvedMinutes + totalDuration
+
   const distribution = scheduler.getWorkloadDistribution()
   const workloads = Object.values(distribution).map(entry => entry.totalMinutes)
   const maxWorkload = workloads.length > 0 ? Math.max(...workloads) : 0
@@ -311,13 +350,29 @@ const simulateAssignment = (
   const averageOccupancy = chairTracker.getAverageOccupancyForRange(resolvedStartTime, totalDuration)
   const [resolvedHours, resolvedMinutes] = resolvedStartTime.split(':').map(Number)
   const slotMinutes = resolvedHours * 60 + resolvedMinutes
-  // Favor spreading patients across the day by penalizing local occupancy more than time
+  const { startMinutes: dayStartMinutes, endMinutes: dayEndMinutes } = getDepartmentHours()
+  const dayLength = Math.max(dayEndMinutes - dayStartMinutes, 1)
+  const normalizedTime = Math.max(slotMinutes - dayStartMinutes, 0) / dayLength
+  const preferEndPenalty = normalizedTime * normalizedTime * 120
+  const midGapStart = 9 * 60 + 45
+  const midGapEnd = 10 * 60 + 15
+  const midGapPenalty = slotMinutes >= midGapStart && slotMinutes <= midGapEnd ? 40 : 0
+
+  const startDensity = dayContext.occupancy.reduce((sum, entry) => {
+    const [h, m] = entry.startTime.split(':').map(Number)
+    const entryMinutes = h * 60 + m
+    return Math.abs(entryMinutes - slotMinutes) <= 30 ? sum + 1 : sum
+  }, 0)
+
   const score =
     maxWorkload * 100 +
     averageOccupancy * 50 +
-    occupancyAtStart * 20 +
-    peakOccupancy * 5 +
-    slotMinutes * 0.01
+    occupancyAtStart * 25 +
+    peakOccupancy * 10 +
+    breakPenalty * 200 +
+    startDensity * 35 +
+    midGapPenalty +
+    preferEndPenalty
 
   return {
     assignedActions,
@@ -338,17 +393,22 @@ export function scheduleTreatmentsAcrossDates(
   const scheduled: ScheduledPatient[] = []
   const skipped: Array<{ medicationId: string; treatmentNumber: number; reason: string }> = []
 
-  const dayContexts: DayContext[] = selectedDates.map(date => {
+  const sortedDates = [...selectedDates].sort()
+  const dayContexts: DayContext[] = sortedDates.map(date => {
     const day = getDayOfWeekFromDate(date)
     const staff = staffMembersByDate[date] || []
     const availableStaffSet = new Set(staff.map(member => member.name))
+    const coordinatorName = coordinatorByDate[date]
+    if (coordinatorName) {
+      availableStaffSet.add(coordinatorName)
+    }
     const patients = existingPatientsByDate[date] || []
 
     return {
       date,
       day,
       staff,
-      coordinator: coordinatorByDate[date] || null,
+      coordinator: coordinatorName || null,
       tasks: extractExistingTasks(patients, availableStaffSet),
       occupancy: patients.map(patient => ({ startTime: patient.startTime, duration: getPatientDuration(patient) })),
       maxPatientsLimit: dayCapacityLimits[date],
@@ -371,18 +431,30 @@ export function scheduleTreatmentsAcrossDates(
   expandedTreatments.sort((a, b) => b.duration - a.duration)
 
   const slots = generateTimeSlots()
+  const remainingTreatments = [...expandedTreatments]
 
-  for (const treatment of expandedTreatments) {
-    let bestCandidate: { contextIndex: number; slot: string; result: NonNullable<ReturnType<typeof simulateAssignment>> } | null = null
-    const hasCapacity = dayContexts.some(context => {
+  const hasStaff = dayContexts.some(context => context.staff.length > 0)
+  if (!hasStaff) {
+    remainingTreatments.forEach(treatment => {
+      skipped.push({
+        medicationId: treatment.medicationId,
+        treatmentNumber: treatment.treatmentNumber,
+        reason: 'Geen personeel ingeroosterd'
+      })
+    })
+    return { scheduled, skipped }
+  }
+
+  const getMaxLimit = (context: DayContext) =>
+    typeof context.maxPatientsLimit === 'number' ? context.maxPatientsLimit : Number.POSITIVE_INFINITY
+
+  for (const treatment of remainingTreatments) {
+    const contextsWithRoom = dayContexts.filter(context => {
       if (context.staff.length === 0) return false
-      if (typeof context.maxPatientsLimit === 'number') {
-        return context.plannedCount < context.maxPatientsLimit
-      }
-      return true
+      return context.plannedCount < getMaxLimit(context)
     })
 
-    if (!hasCapacity) {
+    if (contextsWithRoom.length === 0) {
       skipped.push({
         medicationId: treatment.medicationId,
         treatmentNumber: treatment.treatmentNumber,
@@ -391,43 +463,48 @@ export function scheduleTreatmentsAcrossDates(
       continue
     }
 
-    dayContexts.forEach((context, contextIndex) => {
-      if (context.staff.length === 0) return
-      if (typeof context.maxPatientsLimit === 'number' && context.plannedCount >= context.maxPatientsLimit) return
-      slots.forEach(slot => {
-        const result = simulateAssignment(slot, treatment, context)
-        if (!result) return
-        if (!bestCandidate || result.score < bestCandidate.result.score) {
-          bestCandidate = { contextIndex, slot, result }
-        }
-      })
+    const sortedContexts = [...contextsWithRoom].sort((a, b) => {
+      const aLimit = getMaxLimit(a)
+      const bLimit = getMaxLimit(b)
+      const aRatio = aLimit === Number.POSITIVE_INFINITY ? a.plannedCount / (a.plannedCount + 1) : a.plannedCount / Math.max(aLimit, 1)
+      const bRatio = bLimit === Number.POSITIVE_INFINITY ? b.plannedCount / (b.plannedCount + 1) : b.plannedCount / Math.max(bLimit, 1)
+      if (aRatio !== bRatio) return aRatio - bRatio
+      return a.plannedCount - b.plannedCount
     })
 
-    if (!bestCandidate) {
+    let placed = false
+    for (const context of sortedContexts) {
+      for (const slot of slots) {
+        const result = simulateAssignment(slot, treatment, context)
+        if (!result) continue
+        const resolvedStartTime = result.startTime || slot
+        context.tasks = [...context.tasks, ...result.newTasks]
+        context.occupancy = [
+          ...context.occupancy,
+          { startTime: resolvedStartTime, duration: treatment.duration }
+        ]
+        context.plannedCount += 1
+        placed = true
+
+        scheduled.push({
+          date: context.date,
+          startTime: resolvedStartTime,
+          medicationId: treatment.medicationId,
+          treatmentNumber: treatment.treatmentNumber,
+          actions: result.assignedActions
+        })
+        break
+      }
+      if (placed) break
+    }
+
+    if (!placed) {
       skipped.push({
         medicationId: treatment.medicationId,
         treatmentNumber: treatment.treatmentNumber,
         reason: 'Geen beschikbare tijd gevonden'
       })
-      continue
     }
-
-    const context = dayContexts[bestCandidate.contextIndex]
-    const resolvedStartTime = bestCandidate.result.startTime || bestCandidate.slot
-    context.tasks = [...context.tasks, ...bestCandidate.result.newTasks]
-    context.occupancy = [
-      ...context.occupancy,
-      { startTime: resolvedStartTime, duration: treatment.duration }
-    ]
-    context.plannedCount += 1
-
-    scheduled.push({
-      date: context.date,
-      startTime: resolvedStartTime,
-      medicationId: treatment.medicationId,
-      treatmentNumber: treatment.treatmentNumber,
-      actions: bestCandidate.result.assignedActions
-    })
   }
 
   return { scheduled, skipped }

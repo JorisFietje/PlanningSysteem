@@ -1,9 +1,10 @@
-import { DEPARTMENT_CONFIG, StaffMember, DayOfWeek, getDayCoordinators, getDepartmentHours } from '@/types'
+import { DEPARTMENT_CONFIG, StaffMember, DayOfWeek, getDayCoordinators, getDepartmentHours, getDaycoPatientsCount } from '@/types'
 
 interface StaffAvailability {
   staff: string
   maxPatients: number // Maximum number of patients this staff can handle
   maxWorkTime?: number // Maximum work time in minutes from start of day (e.g., 360 = 14:00 for Yvonne)
+  maxWorkloadMinutes?: number // Maximum total workload minutes (used for dayco free time)
   lastSetupTime: number // Minutes since start of day
   totalWorkload: number // Total minutes of work
   setupCount: number // Number of setups done
@@ -33,7 +34,8 @@ export class StaffScheduler {
     coordinatorName?: string,
     options?: { suppressLogs?: boolean }
   ) {
-    this.dayStartMinutes = getDepartmentHours().startMinutes
+    const departmentHours = getDepartmentHours()
+    this.dayStartMinutes = departmentHours.startMinutes
     this.selectedDay = selectedDay
     this.coordinatorName = coordinatorName
     this.suppressLogs = Boolean(options?.suppressLogs)
@@ -61,14 +63,25 @@ export class StaffScheduler {
     this.staffMembers = allStaffForDay
     
     // Initialize all staff members for this day (3 VPK + 1 coordinator if present)
+    const totalDayMinutes = departmentHours.endMinutes - departmentHours.startMinutes
+    const coordinatorMaxPatients = getDaycoPatientsCount()
+    const coordinatorReservedMinutes = 120 + 60
+
     this.availability = allStaffForDay.map(staffMember => {
       // If this staff member is the day coordinator, limit to 5 patients
-      const maxPatients = (coordinator && staffMember.name === coordinator) ? 5 : staffMember.maxPatients
+      const isCoordinator = coordinator && staffMember.name === coordinator
+      const maxPatients = isCoordinator
+        ? Math.min(coordinatorMaxPatients, staffMember.maxPatients)
+        : staffMember.maxPatients
+      const maxWorkloadMinutes = isCoordinator
+        ? Math.max(totalDayMinutes - coordinatorReservedMinutes, 0)
+        : undefined
       
       return {
         staff: staffMember.name,
         maxPatients: maxPatients,
         maxWorkTime: staffMember.maxWorkTime,
+        maxWorkloadMinutes,
         lastSetupTime: -999, // Far in the past
         totalWorkload: 0,
         setupCount: 0,
@@ -100,68 +113,147 @@ export class StaffScheduler {
     )
   }
 
+  private hasOverlappingSetupForStaff(staffName: string, startMinutes: number, endMinutes: number): boolean {
+    return this.scheduledTasks.some(task =>
+      task.staff === staffName &&
+      task.type === 'setup' &&
+      task.startTime < endMinutes &&
+      task.endTime > startMinutes
+    )
+  }
+
+  private getOverlapCount(staffName: string, startMinutes: number, endMinutes: number): number {
+    return this.scheduledTasks.filter(task =>
+      task.staff === staffName &&
+      task.startTime < endMinutes &&
+      task.endTime > startMinutes
+    ).length
+  }
+
+  private isDuringLunchRange(startMinutes: number, endMinutes: number): boolean {
+    const lunchStart = 12 * 60
+    const lunchEnd = 13 * 60
+    return startMinutes < lunchEnd && endMinutes > lunchStart
+  }
+
+  private countConcurrentNurseTasks(startMinutes: number, endMinutes: number): number {
+    const staffSet = new Set<string>()
+    this.scheduledTasks.forEach(task => {
+      if (task.startTime < endMinutes && task.endTime > startMinutes) {
+        staffSet.add(task.staff)
+      }
+    })
+    return staffSet.size
+  }
+
+  private getLunchAllowedNurses(): number {
+    return Math.max(1, Math.ceil(this.availability.length / 2))
+  }
+
+  private getConcurrentSetupCount(startMinutes: number, endMinutes: number): number {
+    return this.scheduledTasks.filter(task =>
+      task.type === 'setup' &&
+      task.startTime < endMinutes &&
+      task.endTime > startMinutes
+    ).length
+  }
+
+  private getMaxConcurrentSetups(startMinutes: number, endMinutes: number, duration: number): number {
+    return this.availability.filter(staff => {
+      if (staff.maxWorkTime && endMinutes > (this.dayStartMinutes + staff.maxWorkTime)) return false
+      if (staff.maxWorkloadMinutes && staff.totalWorkload + duration > staff.maxWorkloadMinutes) return false
+      if (this.isCoordinatorBlocked(staff.staff, startMinutes, endMinutes)) return false
+      return true
+    }).length
+  }
+
   /**
    * Check if time falls within break periods (no setups allowed)
-   * 10:00-10:30: Coffee break
    * 12:00-13:00: Lunch break
    */
-  private isDuringBreak(timeMinutes: number): boolean {
-    const hour = Math.floor(timeMinutes / 60)
-    const minute = timeMinutes % 60
-    
-    // 10:00-10:30 coffee break
-    if (hour === 10 && minute >= 0 && minute < 30) {
-      return true
-    }
-    
-    // 12:00-13:00 lunch break
-    if (hour === 12) {
-      return true
-    }
-    
-    return false
+  private exceedsLunchCapacity(startMinutes: number, endMinutes: number, staffName: string): boolean {
+    const lunchStart = 12 * 60
+    const lunchMid = 12 * 60 + 30
+    const lunchEnd = 13 * 60
+    const overlapsEarly = startMinutes < lunchMid && endMinutes > lunchStart
+    const overlapsLate = startMinutes < lunchEnd && endMinutes > lunchMid
+    if (!overlapsEarly && !overlapsLate) return false
+    const allowed = this.getLunchAllowedNurses()
+    const windowStart = overlapsEarly ? lunchStart : lunchMid
+    const windowEnd = overlapsLate ? lunchEnd : lunchMid
+    const concurrent = this.countConcurrentNurseTasks(windowStart, windowEnd)
+    const alreadyCounted = this.scheduledTasks.some(task =>
+      task.staff === staffName &&
+      task.startTime < windowEnd &&
+      task.endTime > windowStart
+    )
+    return concurrent + (alreadyCounted ? 0 : 1) > allowed
+  }
+
+  private isCoordinatorBlocked(staffName: string, startMinutes: number, endMinutes: number): boolean {
+    if (!this.coordinatorName || staffName !== this.coordinatorName) return false
+    const blockStart = 9 * 60
+    const blockEnd = 12 * 60
+    return startMinutes < blockEnd && endMinutes > blockStart
+  }
+
+  private canScheduleSetupAt(startMinutes: number, endMinutes: number): boolean {
+    if (this.isDuringLunchRange(startMinutes, endMinutes)) return false
+    const duration = Math.max(endMinutes - startMinutes, 0)
+    const maxConcurrent = this.getMaxConcurrentSetups(startMinutes, endMinutes, duration)
+    if (maxConcurrent <= 0) return false
+    return this.getConcurrentSetupCount(startMinutes, endMinutes) < maxConcurrent
   }
 
   /**
    * Find the best available staff member for a setup action at given time
    * Uses capacity-weighted balancing with availability checks to ensure fair distribution
-   * BLOCKS setups during break times (10:00-10:30 and 12:00-13:00)
+   * BLOCKS setups during break time (12:00-13:00)
    * ENFORCES preparation time between setups for same staff member
    * (Staff CAN do other actions like removal, checks, flush during prep time)
    * Returns both the staff member AND the actual start time (which may be adjusted for breaks/availability)
    */
   public assignStaffForSetup(startTime: string, duration: number = 15): { staff: string; actualStartTime: string; wasDelayed: boolean } {
-    const requestedMinutes = this.timeToMinutes(startTime)
-    const endMinutes = requestedMinutes + duration
-    
-    // CHECK: Is this during a break? If so, reschedule to after break
-    if (this.isDuringBreak(requestedMinutes)) {
-      const hour = Math.floor(requestedMinutes / 60)
-      let adjustedMinutes = requestedMinutes
-      
-      if (hour === 10) {
-        // Move to 10:30
-        adjustedMinutes = 10 * 60 + 30
-      } else if (hour === 12) {
-        // Move to 13:00
-        adjustedMinutes = 13 * 60
-      }
-      
-      // Retry with adjusted time
-      const adjustedTime = `${Math.floor(adjustedMinutes / 60).toString().padStart(2, '0')}:${(adjustedMinutes % 60).toString().padStart(2, '0')}`
-      return this.assignStaffForSetup(adjustedTime, duration)
+    const { endMinutes: closingMinutes } = getDepartmentHours()
+    if (this.availability.length === 0) {
+      return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
     }
+    const stepMinutes = 5
+    let requestedMinutes = this.timeToMinutes(startTime)
+    let endMinutes = requestedMinutes + duration
+    let adjustedStartTime = startTime
+    
+    // Find the next time that respects setup capacity and lunch rotation
+    while (requestedMinutes + duration <= closingMinutes) {
+      if (
+        this.canScheduleSetupAt(requestedMinutes, requestedMinutes + duration) &&
+        !this.isDuringLunchRange(requestedMinutes, requestedMinutes + duration)
+      ) {
+        break
+      }
+      requestedMinutes += stepMinutes
+    }
+
+    if (requestedMinutes + duration > closingMinutes) {
+      return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
+    }
+
+    endMinutes = requestedMinutes + duration
+    adjustedStartTime = `${Math.floor(requestedMinutes / 60).toString().padStart(2, '0')}:${(requestedMinutes % 60).toString().padStart(2, '0')}`
     
     const staffCount = this.staffMembers.length
     const candidates = this.availability
       .map((staff, index) => ({ staff, index }))
       .filter(({ staff }) => {
-        const hasCapacity = staff.setupCount < staff.maxPatients
         const withinWorkingHours = !staff.maxWorkTime || endMinutes <= (this.dayStartMinutes + staff.maxWorkTime)
+        const withinWorkload = !staff.maxWorkloadMinutes || staff.totalWorkload + duration <= staff.maxWorkloadMinutes
         const timeSinceLastSetup = requestedMinutes - staff.lastSetupTime
         const hasEnoughPrepTime = timeSinceLastSetup >= DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME || staff.lastSetupTime === -999
         const hasNoOverlap = !this.hasOverlappingTask(staff.staff, requestedMinutes, endMinutes)
-        return hasCapacity && withinWorkingHours && hasEnoughPrepTime && hasNoOverlap
+        const withinSetupCapacity = this.canScheduleSetupAt(requestedMinutes, endMinutes)
+        const notInLunch = !this.isDuringLunchRange(requestedMinutes, endMinutes)
+        const notBlocked = !this.isCoordinatorBlocked(staff.staff, requestedMinutes, endMinutes)
+        return withinWorkingHours && withinWorkload && hasEnoughPrepTime && hasNoOverlap && withinSetupCapacity && notInLunch && notBlocked
       })
 
     if (candidates.length > 0) {
@@ -181,17 +273,17 @@ export class StaffScheduler {
       this.scheduleTask(selected.staff.staff, requestedMinutes, endMinutes, 'setup')
       this.updateStaffSetup(selected.staff.staff, requestedMinutes, duration)
       this.setupRoundRobinIndex = (selected.index + 1) % staffCount
-      return { staff: selected.staff.staff, actualStartTime: startTime, wasDelayed: false }
+      return { staff: selected.staff.staff, actualStartTime: adjustedStartTime, wasDelayed: false }
     }
     
     // LAST RESORT: If truly no one available (shouldn't happen with proper simulation)
     // Pick the one with least setup count and schedule AFTER their busy time
     // FILTER OUT staff who have reached their max patients or max work time
     const availableStaff = this.availability.filter(s => {
-      // Must have capacity left
-      if (s.setupCount >= s.maxPatients) return false
       // Must be within working hours (check if adjusted time would be within their work time)
       if (s.maxWorkTime && requestedMinutes >= (this.dayStartMinutes + s.maxWorkTime)) return false
+      if (s.maxWorkloadMinutes && s.totalWorkload + duration > s.maxWorkloadMinutes) return false
+      if (this.isCoordinatorBlocked(s.staff, requestedMinutes, requestedMinutes + duration)) return false
       return true
     })
     
@@ -201,7 +293,7 @@ export class StaffScheduler {
         console.error(`❌ GEEN VERPLEEGKUNDIGEN BESCHIKBAAR voor ${startTime} - alle verpleegkundigen hebben hun limiet bereikt`)
       }
       // Return a dummy result - caller should handle this
-      return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
+      return { staff: 'GEEN', actualStartTime: adjustedStartTime, wasDelayed: true }
     }
     
     const fallbackStaff = availableStaff.sort((a, b) => {
@@ -212,31 +304,30 @@ export class StaffScheduler {
       return a.busyUntil - b.busyUntil
     })[0]
     
-    // Schedule at their next available time (but not during breaks!)
-    // MUST respect preparation time between setups!
-    const minSetupTime = fallbackStaff.lastSetupTime === -999 
-      ? requestedMinutes 
-      : fallbackStaff.lastSetupTime + DEPARTMENT_CONFIG.STAFF_PREPARATION_TIME
-    
-    let adjustedStart = Math.max(requestedMinutes, fallbackStaff.busyUntil, minSetupTime)
-    
-    // Check if adjusted start would exceed staff's work time
-    if (fallbackStaff.maxWorkTime && adjustedStart >= (this.dayStartMinutes + fallbackStaff.maxWorkTime)) {
+    // Relaxed scheduling: allow overlap if needed, but never during lunch.
+    let adjustedStart = requestedMinutes
+    while (adjustedStart + duration <= closingMinutes) {
+      if (!this.isDuringLunchRange(adjustedStart, adjustedStart + duration)) {
+        break
+      }
+      adjustedStart += stepMinutes
+    }
+
+    if (this.isCoordinatorBlocked(fallbackStaff.staff, adjustedStart, adjustedStart + duration)) {
+      return { staff: 'GEEN', actualStartTime: adjustedStartTime, wasDelayed: true }
+    }
+
+    // Check if adjusted start would exceed staff's work time or closing
+    if (
+      adjustedStart + duration > closingMinutes ||
+      (fallbackStaff.maxWorkTime && adjustedStart >= (this.dayStartMinutes + fallbackStaff.maxWorkTime)) ||
+      (fallbackStaff.maxWorkloadMinutes && fallbackStaff.totalWorkload + duration > fallbackStaff.maxWorkloadMinutes)
+    ) {
       if (!this.suppressLogs) {
-        const endMinutes = this.dayStartMinutes + fallbackStaff.maxWorkTime
+        const endMinutes = this.dayStartMinutes + (fallbackStaff.maxWorkTime || 0)
         console.error(`❌ ${fallbackStaff.staff} kan niet meer werken na ${Math.floor(endMinutes / 60)}:${String(endMinutes % 60).padStart(2, '0')}`)
       }
-      return { staff: 'GEEN', actualStartTime: startTime, wasDelayed: true }
-    }
-    
-    // Skip breaks if needed
-    if (this.isDuringBreak(adjustedStart)) {
-      const hour = Math.floor(adjustedStart / 60)
-      if (hour === 10) {
-        adjustedStart = 10 * 60 + 30
-      } else if (hour === 12) {
-        adjustedStart = 13 * 60
-      }
+      return { staff: 'GEEN', actualStartTime: adjustedStartTime, wasDelayed: true }
     }
     
     const adjustedEnd = adjustedStart + duration
@@ -276,53 +367,23 @@ export class StaffScheduler {
     
     // Find ALL staff who have no overlapping tasks at this time AND are not excluded AND within working hours
     const availableStaff = this.availability.filter(s => {
-      // Check for overlaps
-      if (this.hasOverlappingTask(s.staff, requestedMinutes, endMinutes)) return false
+      // Do not overlap with an existing setup for this staff member
+      if (this.hasOverlappingSetupForStaff(s.staff, requestedMinutes, endMinutes)) return false
       // Check if excluded
       if (excludeStaff && s.staff === excludeStaff) return false
       // Check if action would end within staff working hours
       if (s.maxWorkTime && endMinutes > (this.dayStartMinutes + s.maxWorkTime)) return false
+      if (s.maxWorkloadMinutes && s.totalWorkload + duration > s.maxWorkloadMinutes) return false
+      if (this.isCoordinatorBlocked(s.staff, requestedMinutes, endMinutes)) return false
+      if (this.exceedsLunchCapacity(requestedMinutes, endMinutes, s.staff)) return false
       return true
     })
 
     if (availableStaff.length === 0) {
-      // NO ONE is available - we need to DELAY this action
-      // Find who becomes free soonest (excluding specified staff if needed AND within working hours)
-      const candidateStaff = this.availability.filter(s => {
-        if (excludeStaff && s.staff === excludeStaff) return false
-        // Also check if this staff member would still be working when the action completes
-        const projectedEnd = Math.max(requestedMinutes, s.busyUntil) + duration
-        if (s.maxWorkTime && projectedEnd > (this.dayStartMinutes + s.maxWorkTime)) return false
-        return true
-      })
-      
-      if (candidateStaff.length === 0) {
-        // NO STAFF can do this action (all are outside working hours or excluded)
-        if (!this.suppressLogs) {
-          console.error(`❌ GEEN VERPLEEGKUNDIGEN beschikbaar voor ${actionType} om ${requestedTime} - actie valt buiten werktijden`)
-        }
-        return { staff: 'GEEN', actualStartTime: requestedTime, wasDelayed: true }
+      if (!this.suppressLogs) {
+        console.error(`❌ GEEN VERPLEEGKUNDIGEN beschikbaar voor ${actionType} om ${requestedTime}`)
       }
-      
-      const nextFreeStaff = [...candidateStaff].sort((a, b) => a.busyUntil - b.busyUntil)[0]
-      const adjustedStart = Math.max(requestedMinutes, nextFreeStaff.busyUntil)
-      const adjustedEnd = adjustedStart + duration
-      
-      this.scheduleTask(nextFreeStaff.staff, adjustedStart, adjustedEnd, actionType)
-      this.updateStaffWorkload(nextFreeStaff.staff, adjustedEnd, duration)
-      
-      const adjustedHours = Math.floor(adjustedStart / 60)
-      const adjustedMins = adjustedStart % 60
-      const actualStartTime = `${adjustedHours.toString().padStart(2, '0')}:${adjustedMins.toString().padStart(2, '0')}`
-      
-      // Removed console.log to prevent spam
-      // console.log(`⏰ Delayed ${actionType} from ${requestedTime} to ${actualStartTime} for ${nextFreeStaff.staff}`)
-      
-      return { 
-        staff: nextFreeStaff.staff, 
-        actualStartTime,
-        wasDelayed: true
-      }
+      return { staff: 'GEEN', actualStartTime: requestedTime, wasDelayed: true }
     }
 
     // From available staff, choose the one with least total workload
@@ -334,6 +395,44 @@ export class StaffScheduler {
 
     return { 
       staff: bestStaff.staff, 
+      actualStartTime: requestedTime,
+      wasDelayed: false
+    }
+  }
+
+  /**
+   * Relaxed assignment for non-setup actions when lunch capacity is the only blocker.
+   * Still avoids overlapping setup tasks for the same staff member.
+   */
+  public assignStaffForActionRelaxed(
+    actionType: string,
+    duration: number,
+    requestedTime: string,
+    excludeStaff?: string
+  ): { staff: string; actualStartTime: string; wasDelayed: boolean } {
+    const requestedMinutes = this.timeToMinutes(requestedTime)
+    const endMinutes = requestedMinutes + duration
+
+    const availableStaff = this.availability.filter(s => {
+      if (this.hasOverlappingSetupForStaff(s.staff, requestedMinutes, endMinutes)) return false
+      if (excludeStaff && s.staff === excludeStaff) return false
+      if (s.maxWorkTime && endMinutes > (this.dayStartMinutes + s.maxWorkTime)) return false
+      if (s.maxWorkloadMinutes && s.totalWorkload + duration > s.maxWorkloadMinutes) return false
+      if (this.isCoordinatorBlocked(s.staff, requestedMinutes, endMinutes)) return false
+      return true
+    })
+
+    if (availableStaff.length === 0) {
+      return { staff: 'GEEN', actualStartTime: requestedTime, wasDelayed: true }
+    }
+
+    const bestStaff = availableStaff.sort((a, b) => a.totalWorkload - b.totalWorkload)[0]
+
+    this.scheduleTask(bestStaff.staff, requestedMinutes, endMinutes, actionType)
+    this.updateStaffWorkload(bestStaff.staff, endMinutes, duration)
+
+    return {
+      staff: bestStaff.staff,
       actualStartTime: requestedTime,
       wasDelayed: false
     }

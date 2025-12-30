@@ -10,12 +10,25 @@ interface StatisticsProps {
   staffMembers: StaffMember[]
   assignedStaffNames?: string[]
   coordinatorName?: string | null
+  agreedMaxPatients?: number | null
 }
 
-export default function Statistics({ patients, workload, selectedDay, staffMembers, assignedStaffNames, coordinatorName }: StatisticsProps) {
+export default function Statistics({
+  patients,
+  workload,
+  selectedDay,
+  staffMembers,
+  assignedStaffNames,
+  coordinatorName,
+  agreedMaxPatients
+}: StatisticsProps) {
   const [targetPatients, setTargetPatients] = useState<number>(0)
   
   useEffect(() => {
+    if (typeof agreedMaxPatients === 'number') {
+      setTargetPatients(agreedMaxPatients)
+      return
+    }
     if (assignedStaffNames && assignedStaffNames.length > 0) {
       const assigned = staffMembers.filter(s => assignedStaffNames.includes(s.name))
       const total = assigned.reduce((sum, s) => {
@@ -29,7 +42,7 @@ export default function Statistics({ patients, workload, selectedDay, staffMembe
       const capacity = getDailyPatientCapacity(selectedDay, staffMembers)
       setTargetPatients(capacity.max)
     }
-  }, [selectedDay, staffMembers, assignedStaffNames, coordinatorName])
+  }, [selectedDay, staffMembers, assignedStaffNames, coordinatorName, agreedMaxPatients])
   
   const totalActions = patients.reduce((sum, p) => sum + p.actions.filter(a => a.type !== 'infusion').length, 0)
 

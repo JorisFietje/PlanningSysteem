@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useDagplanningContext } from '../layout'
-import { Patient, getDayOfWeekFromDate, DEPARTMENT_CONFIG, getMondayOfWeek, formatDateToISO } from '@/types'
+import { DayOfWeek, Patient, getDayOfWeekFromDate, DEPARTMENT_CONFIG, getMondayOfWeek, formatDateToISO } from '@/types'
 import { validateNurseWorkDay } from '@/features/patients/patientValidation'
 import { addPatientWithActions } from '@/features/patients/patientAssignment'
 import { deletePatient as deletePatientService, updatePatient, updatePatientStartTime } from '@/features/patients/patientService'
@@ -110,11 +110,21 @@ export default function PlanningPage() {
       const weekStartDate = monday
       const weekEndDate = getWeekEndFromMonday(monday)
 
+      const fallbackStaffSchedules = (Object.entries(staffSchedule) as Array<[DayOfWeek, string[]]>).map(([day, names]) => ({
+        dayOfWeek: day,
+        staffNames: JSON.stringify({
+          staff: names,
+          coordinator: coordinatorByDay[day] || null
+        })
+      }))
+
       const staffSchedulesPayload =
-        existing?.staffSchedules?.map((s: any) => ({
-          dayOfWeek: s.dayOfWeek,
-          staffNames: s.staffNames
-        })) || []
+        existing?.staffSchedules?.length
+          ? existing.staffSchedules.map((s: any) => ({
+              dayOfWeek: s.dayOfWeek,
+              staffNames: s.staffNames
+            }))
+          : fallbackStaffSchedules
 
       const mapKey = (m: string, t: number) => `${m}__${t}`
       const counts = new Map<string, number>()
@@ -482,7 +492,7 @@ export default function PlanningPage() {
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white">
           <div className="flex items-center gap-6">
-            <h2 className="text-xl font-bold text-slate-900">Dagplanning</h2>
+            <h2 className="text-xl font-bold text-slate-900">Snapboard</h2>
             <div className="h-8 w-px bg-slate-300" />
             <DatePicker
               value={selectedDate}
