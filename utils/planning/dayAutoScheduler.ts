@@ -1,5 +1,5 @@
 import { DayOfWeek, DEPARTMENT_CONFIG, Patient, StaffMember, getDayOfWeekFromDate, getDepartmentHours } from '@/types'
-import { getMedicationById } from '@/types/medications'
+import { getMedicationById, getMedicationVariant, isCheckDisabledMedication, isLowPriorityMedication } from '@/types/medications'
 import { generateActionsForMedication, calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
 import { ChairOccupancyTracker } from '@/utils/capacity/chairOccupancy'
 import { StaffScheduler } from '@/utils/staff/staffAssignment'
@@ -47,6 +47,40 @@ type DayContext = {
   occupancy: Array<{ startTime: string; duration: number }>
   maxPatientsLimit?: number | null
   plannedCount: number
+  lunchEarlyActions: number
+  lunchLateActions: number
+}
+
+const LUNCH_START_MINUTES = 12 * 60
+const LUNCH_MID_MINUTES = 12 * 60 + 30
+const LUNCH_END_MINUTES = 13 * 60
+const MAX_LUNCH_ACTIONS_PER_HALF = 3
+
+const timeToMinutes = (time: string) => {
+  const [hours, minutes] = time.split(':').map(Number)
+  return hours * 60 + minutes
+}
+
+const overlapsLunchEarly = (startMinutes: number, endMinutes: number) => {
+  return startMinutes < LUNCH_MID_MINUTES && endMinutes > LUNCH_START_MINUTES
+}
+
+const overlapsLunchLate = (startMinutes: number, endMinutes: number) => {
+  return startMinutes < LUNCH_END_MINUTES && endMinutes > LUNCH_MID_MINUTES
+}
+
+const countTaskOverlaps = (tasks: RegisteredTask[], startMinutes: number, endMinutes: number) => {
+  return tasks.reduce((count, task) => {
+    const taskStart = timeToMinutes(task.startTime)
+    const taskEnd = taskStart + task.duration
+    return taskStart < endMinutes && taskEnd > startMinutes ? count + 1 : count
+  }, 0)
+}
+
+const hasConfiguredCheck = (medicationId: string, treatmentNumber: number) => {
+  if (isCheckDisabledMedication(medicationId)) return false
+  const variant = getMedicationVariant(medicationId, treatmentNumber)
+  return Boolean(variant?.actions?.some(action => action.type === 'check'))
 }
 
 const buildChairTracker = (entries: Array<{ startTime: string; duration: number }>) => {
@@ -128,6 +162,7 @@ const extractExistingTasks = (patients: Patient[], availableStaff: Set<string>) 
     })
 
     const medication = getMedicationById(patient.medicationType)
+    const allowChecks = hasConfiguredCheck(patient.medicationType, patient.treatmentNumber)
     let checkCount = 0
     let pcSwitchCount = 0
 
@@ -154,6 +189,11 @@ const extractExistingTasks = (patients: Patient[], availableStaff: Set<string>) 
           checkCount++
           startMinutesForAction = infusionStartMinutes + (checkCount * medication.checkInterval)
         }
+      }
+
+      if (inferredType === 'check' && !allowChecks) {
+        currentMinutes += action.duration
+        continue
       }
 
       if (!isNurseAction(inferredType, action.nurseAction, hasStaff)) {
@@ -200,6 +240,75 @@ const extractExistingTasks = (patients: Patient[], availableStaff: Set<string>) 
   return tasks
 }
 
+const countLunchActionsForPatient = (patient: Patient) => {
+  const [hours, minutes] = patient.startTime.split(':').map(Number)
+  const patientStartMinutes = hours * 60 + minutes
+  let currentMinutes = patientStartMinutes
+
+  let infusionStartMinutes = 0
+  let cumulativeMinutesForInfusion = 0
+  patient.actions.forEach(action => {
+    if (inferActionType(action) === 'infusion') {
+      infusionStartMinutes = patientStartMinutes + cumulativeMinutesForInfusion
+    }
+    cumulativeMinutesForInfusion += action.duration
+  })
+
+  const medication = getMedicationById(patient.medicationType)
+  const allowChecks = hasConfiguredCheck(patient.medicationType, patient.treatmentNumber)
+  let checkCount = 0
+  let pcSwitchCount = 0
+  let lunchEarly = 0
+  let lunchLate = 0
+
+  for (const action of patient.actions) {
+    let startMinutesForAction = currentMinutes
+    const inferredType = inferActionType(action)
+    const hasStaff = Boolean(action.staff && action.staff !== 'Systeem' && action.staff !== 'Geen')
+
+    if (inferredType === 'pc_switch' && infusionStartMinutes > 0) {
+      const offset = (action as any).checkOffset
+      if (typeof offset === 'number') {
+        startMinutesForAction = infusionStartMinutes + offset
+      } else if (medication?.pcSwitchInterval) {
+        pcSwitchCount++
+        startMinutesForAction = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
+      }
+    }
+    if (inferredType === 'check' && infusionStartMinutes > 0) {
+      const offset = (action as any).checkOffset
+      if (typeof offset === 'number') {
+        startMinutesForAction = infusionStartMinutes + offset
+      } else if (medication?.checkInterval) {
+        checkCount++
+        startMinutesForAction = infusionStartMinutes + (checkCount * medication.checkInterval)
+      }
+    }
+
+    if (inferredType === 'check' && !allowChecks) {
+      currentMinutes += action.duration
+      continue
+    }
+
+    if (!isNurseAction(inferredType, action.nurseAction, hasStaff)) {
+      currentMinutes += action.duration
+      continue
+    }
+
+    const effectiveDuration = action.actualDuration || action.duration
+    if (overlapsLunchEarly(startMinutesForAction, startMinutesForAction + effectiveDuration)) {
+      lunchEarly += 1
+    }
+    if (overlapsLunchLate(startMinutesForAction, startMinutesForAction + effectiveDuration)) {
+      lunchLate += 1
+    }
+
+    currentMinutes += action.duration
+  }
+
+  return { lunchEarly, lunchLate }
+}
+
 const simulateAssignment = (
   slot: string,
   treatment: { medicationId: string; treatmentNumber: number },
@@ -217,6 +326,9 @@ const simulateAssignment = (
   let resolvedStartTime = slot
   let chairReserved = false
   let breakPenalty = 0
+  let lunchEarlyActions = 0
+  let lunchLateActions = 0
+  let actionOverlapPenalty = 0
 
   let infusionOffsetMinutes = 0
   let cumulativeMinutesForInfusion = 0
@@ -258,11 +370,15 @@ const simulateAssignment = (
     const actionStartTime = `${actionStartHours.toString().padStart(2, '0')}:${actionStartMins.toString().padStart(2, '0')}`
     const effectiveDuration = action.actualDuration || action.duration
     if (isNurseAction(action.type, action.nurseAction, true)) {
-      const breakStart = 12 * 60
-      const breakEnd = 13 * 60
-      if (startMinutesForAction < breakEnd && (startMinutesForAction + effectiveDuration) > breakStart) {
+      if (overlapsLunchEarly(startMinutesForAction, startMinutesForAction + effectiveDuration)) {
         breakPenalty += 1
+        lunchEarlyActions += 1
       }
+      if (overlapsLunchLate(startMinutesForAction, startMinutesForAction + effectiveDuration)) {
+        breakPenalty += 1
+        lunchLateActions += 1
+      }
+      actionOverlapPenalty += countTaskOverlaps(dayContext.tasks, startMinutesForAction, startMinutesForAction + effectiveDuration)
     }
 
     let staff = 'Systeem'
@@ -353,7 +469,7 @@ const simulateAssignment = (
   const { startMinutes: dayStartMinutes, endMinutes: dayEndMinutes } = getDepartmentHours()
   const dayLength = Math.max(dayEndMinutes - dayStartMinutes, 1)
   const normalizedTime = Math.max(slotMinutes - dayStartMinutes, 0) / dayLength
-  const preferEndPenalty = normalizedTime * normalizedTime * 120
+  const earlyPenalty = (1 - normalizedTime) * (1 - normalizedTime) * 80
   const midGapStart = 9 * 60 + 45
   const midGapEnd = 10 * 60 + 15
   const midGapPenalty = slotMinutes >= midGapStart && slotMinutes <= midGapEnd ? 40 : 0
@@ -370,15 +486,18 @@ const simulateAssignment = (
     occupancyAtStart * 25 +
     peakOccupancy * 10 +
     breakPenalty * 200 +
-    startDensity * 35 +
+    startDensity * 45 +
+    actionOverlapPenalty * 60 +
     midGapPenalty +
-    preferEndPenalty
+    earlyPenalty
 
   return {
     assignedActions,
     newTasks,
     score,
-    startTime: resolvedStartTime
+    startTime: resolvedStartTime,
+    lunchEarlyActions,
+    lunchLateActions
   }
 }
 
@@ -412,7 +531,9 @@ export function scheduleTreatmentsAcrossDates(
       tasks: extractExistingTasks(patients, availableStaffSet),
       occupancy: patients.map(patient => ({ startTime: patient.startTime, duration: getPatientDuration(patient) })),
       maxPatientsLimit: dayCapacityLimits[date],
-      plannedCount: patients.length
+      plannedCount: patients.length,
+      lunchEarlyActions: patients.reduce((sum, patient) => sum + countLunchActionsForPatient(patient).lunchEarly, 0),
+      lunchLateActions: patients.reduce((sum, patient) => sum + countLunchActionsForPatient(patient).lunchLate, 0)
     }
   })
 
@@ -428,7 +549,12 @@ export function scheduleTreatmentsAcrossDates(
     }
   })
 
-  expandedTreatments.sort((a, b) => b.duration - a.duration)
+  expandedTreatments.sort((a, b) => {
+    const aLow = isLowPriorityMedication(a.medicationId)
+    const bLow = isLowPriorityMedication(b.medicationId)
+    if (aLow !== bLow) return aLow ? 1 : -1
+    return b.duration - a.duration
+  })
 
   const slots = generateTimeSlots()
   const remainingTreatments = [...expandedTreatments]
@@ -474,16 +600,36 @@ export function scheduleTreatmentsAcrossDates(
 
     let placed = false
     for (const context of sortedContexts) {
+      let bestSlot: string | null = null
+      let bestResult: ReturnType<typeof simulateAssignment> | null = null
+      let bestScore = Number.POSITIVE_INFINITY
+
       for (const slot of slots) {
         const result = simulateAssignment(slot, treatment, context)
         if (!result) continue
-        const resolvedStartTime = result.startTime || slot
-        context.tasks = [...context.tasks, ...result.newTasks]
+        if (context.lunchEarlyActions + result.lunchEarlyActions > MAX_LUNCH_ACTIONS_PER_HALF) {
+          continue
+        }
+        if (context.lunchLateActions + result.lunchLateActions > MAX_LUNCH_ACTIONS_PER_HALF) {
+          continue
+        }
+        if (result.score < bestScore) {
+          bestScore = result.score
+          bestSlot = slot
+          bestResult = result
+        }
+      }
+
+      if (bestResult && bestSlot) {
+        const resolvedStartTime = bestResult.startTime || bestSlot
+        context.tasks = [...context.tasks, ...bestResult.newTasks]
         context.occupancy = [
           ...context.occupancy,
           { startTime: resolvedStartTime, duration: treatment.duration }
         ]
         context.plannedCount += 1
+        context.lunchEarlyActions += bestResult.lunchEarlyActions
+        context.lunchLateActions += bestResult.lunchLateActions
         placed = true
 
         scheduled.push({
@@ -491,11 +637,10 @@ export function scheduleTreatmentsAcrossDates(
           startTime: resolvedStartTime,
           medicationId: treatment.medicationId,
           treatmentNumber: treatment.treatmentNumber,
-          actions: result.assignedActions
+          actions: bestResult.assignedActions
         })
         break
       }
-      if (placed) break
     }
 
     if (!placed) {

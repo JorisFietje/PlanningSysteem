@@ -2,7 +2,7 @@
 
 import { Patient } from '@/types'
 import { getTotalDuration } from '@/utils/planning/workload'
-import { getMedicationById } from '@/types/medications'
+import { getMedicationById, getMedicationVariant, isCheckDisabledMedication } from '@/types/medications'
 
 interface TreatmentBoxesProps {
   patients: Patient[]
@@ -37,6 +37,8 @@ export default function TreatmentBoxes({ patients, onEditPatient }: TreatmentBox
             // Extract medication name from patient name (remove "Patiënt X - " prefix)
             const medication = getMedicationById(patient.medicationType)
             const displayName = medication?.displayName || patient.medicationType
+            const variant = getMedicationVariant(patient.medicationType, patient.treatmentNumber)
+            const allowChecks = !isCheckDisabledMedication(patient.medicationType) && Boolean(variant?.actions?.some(action => action.type === 'check'))
             // Remove "Patiënt X - " prefix if present
             const cleanName = patient.name.includes(' - ') 
               ? patient.name.split(' - ').slice(1).join(' - ')
@@ -79,6 +81,10 @@ export default function TreatmentBoxes({ patients, onEditPatient }: TreatmentBox
                       const isCheck = action.name.includes('Check')
                       const isInfusion = action.name.includes('Loopt')
                       
+                      // Hide checks when not configured in the medicatie builder
+                      if (isCheck && !allowChecks) {
+                        return null
+                      }
                       // Skip check actions with 0 duration (they happen during infusion)
                       if (isCheck && action.duration === 0) {
                         return null
@@ -123,5 +129,3 @@ export default function TreatmentBoxes({ patients, onEditPatient }: TreatmentBox
     </div>
   )
 }
-
-

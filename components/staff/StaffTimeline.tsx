@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { Patient, DEPARTMENT_CONFIG, StaffMember, getDailyPatientCapacity, getDayOfWeekFromDate, getDepartmentHours, getDaycoPatientsCount } from '@/types'
-import { getMedicationById } from '@/types/medications'
+import { getMedicationById, getMedicationVariant, isCheckDisabledMedication } from '@/types/medications'
 import { calculateTotalTreatmentTime } from '@/utils/patients/actionGenerator'
 
 interface StaffTimelineProps {
@@ -54,6 +54,12 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
     if (name.includes('pc wissel')) return 'pc_switch'
     if (name.includes('check') || name.includes('controle')) return 'check'
     return 'custom'
+  }
+
+  const hasConfiguredCheck = (medicationId: string, treatmentNumber: number) => {
+    if (isCheckDisabledMedication(medicationId)) return false
+    const variant = getMedicationVariant(medicationId, treatmentNumber)
+    return Boolean(variant?.actions?.some(action => action.type === 'check'))
   }
 
   const timelineRefs = useRef<Record<string, HTMLDivElement | null>>({})
@@ -118,6 +124,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
       })
       
       const medication = getMedicationById(patient.medicationType)
+      const allowChecks = hasConfiguredCheck(patient.medicationType, patient.treatmentNumber)
       
       let checkCount = 0
       let pcSwitchCount = 0
@@ -145,6 +152,10 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
         } else if ((inferredType === 'pc_switch') && infusionStartMinutes > 0 && medication?.pcSwitchInterval) {
           pcSwitchCount++
           startMinutesForAction = infusionStartMinutes + (pcSwitchCount * medication.pcSwitchInterval)
+        }
+        if (inferredType === 'check' && !allowChecks) {
+          currentMinutes += action.duration
+          continue
         }
         if ((inferredType === 'check') && infusionStartMinutes > 0 && (action as any).checkOffset !== undefined) {
           startMinutesForAction = infusionStartMinutes + (action as any).checkOffset
@@ -213,6 +224,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
 
   const staffActivities = staffAllocation.grouped
   const allActivities = staffAllocation.flat
+  const hasCheckTasks = allActivities.some(activity => activity.type === 'check')
 
   const breakAssignments = useMemo(() => {
     const lunchStart = 12 * 60
@@ -300,6 +312,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
     switch(type) {
       case 'setup': return 'bg-purple-700'
       case 'protocol_check': return 'bg-green-700' // Protocol / Spoelen in groen
+      case 'check': return 'bg-sky-500'
       case 'removal': return 'bg-orange-600'
       case 'pc_switch': return 'bg-blue-500' // PC wissel in blauw
       case 'flush': return 'bg-green-700'
@@ -313,6 +326,7 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
     switch(type) {
       case 'setup': return 'border-purple-700'
       case 'protocol_check': return 'border-green-700'
+      case 'check': return 'border-sky-600'
       case 'removal': return 'border-orange-700'
       case 'pc_switch': return 'border-blue-600'
       case 'flush': return 'border-green-700'
@@ -375,6 +389,12 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
             <div className="w-3 h-3 bg-green-700 rounded"></div>
             <span>Protocol / Spoelen</span>
           </div>
+          {hasCheckTasks && (
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-sky-500 rounded"></div>
+              <span>Check</span>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-blue-500 rounded"></div>
             <span>PC Wissel</span>
@@ -437,8 +457,8 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
                 <div className="flex gap-1.5 text-[10px] flex-wrap">
                   <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{setupTasks}× aanbrengen</span>
                   <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{protocolCheckTasks}× protocol</span>
-                  <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{checkTasks}× check</span>
-                  {pcSwitchTasks > 0 && <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded">{pcSwitchTasks}× PC wissel</span>}
+                  {checkTasks > 0 && <span className="bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded">{checkTasks}× check</span>}
+                  {pcSwitchTasks > 0 && <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{pcSwitchTasks}× PC wissel</span>}
                   <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded">{removalTasks}× afkoppelen</span>
                 </div>
               </div>
@@ -494,6 +514,27 @@ export default function StaffTimeline({ patients, selectedDate, staffMembers, co
                             Pauze
                           </div>
                         )}
+
+                        {isCoordinator && (() => {
+                          const daycoStart = 9 * 60
+                          const daycoEnd = 12 * 60
+                          const clampedStart = Math.max(daycoStart, startMinutes)
+                          const clampedEnd = Math.min(daycoEnd, endMinutes)
+                          if (clampedEnd <= clampedStart) return null
+                          const daycoLeft = ((clampedStart - startMinutes) / totalMinutes) * 100
+                          const daycoWidth = ((clampedEnd - clampedStart) / totalMinutes) * 100
+                          return (
+                            <div
+                              className="absolute top-0 bottom-0 bg-indigo-100/70 border-l border-r border-indigo-200 text-[9px] text-indigo-800 font-semibold flex items-center justify-center pointer-events-none"
+                              style={{
+                                left: `${daycoLeft}%`,
+                                width: `${daycoWidth}%`
+                              }}
+                            >
+                              Dagco
+                            </div>
+                          )
+                        })()}
                         
                         {/* Gray overlay for non-working hours */}
                         {staffMember.maxWorkTime && (

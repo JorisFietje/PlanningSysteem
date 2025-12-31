@@ -249,62 +249,57 @@ export default function BehandelingenPage() {
     }
   }, [isMounted, collapsedPlanGroups])
 
-  useEffect(() => {
-    if (selectedDates.length === 0) {
+  const refreshCapacity = async (dates: string[]) => {
+    if (dates.length === 0) {
       setCapacityStatus({})
       return
     }
 
-    let isActive = true
-    const loadCapacity = async () => {
-      try {
-        const weekStarts = Array.from(new Set(selectedDates.map(date => getMondayOfWeek(date))))
-        const weekPlans = await Promise.all(
-          weekStarts.map(async weekStart => {
-            const response = await fetch(`/api/weekplan?weekStart=${weekStart}`)
-            if (!response.ok) return null
-            return response.json()
-          })
-        )
-        const maxByDate: Record<string, number | null> = {}
-        weekPlans.forEach(plan => {
-          if (!plan?.dayCapacities) return
-          plan.dayCapacities.forEach((entry: any) => {
-            if (entry?.date && entry.agreedMaxPatients !== undefined) {
-              maxByDate[entry.date] = entry.agreedMaxPatients ?? null
-            }
-          })
+    try {
+      const weekStarts = Array.from(new Set(dates.map(date => getMondayOfWeek(date))))
+      const weekPlans = await Promise.all(
+        weekStarts.map(async weekStart => {
+          const response = await fetch(`/api/weekplan?weekStart=${weekStart}`)
+          if (!response.ok) return null
+          return response.json()
         })
-
-        const plannedCounts = await Promise.all(
-          selectedDates.map(async date => {
-            const response = await fetch(`/api/patients?date=${date}`)
-            if (!response.ok) return { date, planned: 0 }
-            const patients = await response.json() as Patient[]
-            return { date, planned: patients.length }
-          })
-        )
-
-        if (!isActive) return
-        const next: Record<string, { max: number | null; planned: number; remaining: number | null }> = {}
-        plannedCounts.forEach(({ date, planned }) => {
-          const max = maxByDate[date] ?? null
-          next[date] = {
-            max,
-            planned,
-            remaining: max !== null ? Math.max(max - planned, 0) : null
+      )
+      const maxByDate: Record<string, number | null> = {}
+      weekPlans.forEach(plan => {
+        if (!plan?.dayCapacities) return
+        plan.dayCapacities.forEach((entry: any) => {
+          if (entry?.date && entry.agreedMaxPatients !== undefined) {
+            maxByDate[entry.date] = entry.agreedMaxPatients ?? null
           }
         })
-        setCapacityStatus(next)
-      } catch (error) {
-        console.error('Failed to load capacity status', error)
-      }
-    }
+      })
 
-    loadCapacity()
-    return () => {
-      isActive = false
+      const plannedCounts = await Promise.all(
+        dates.map(async date => {
+          const response = await fetch(`/api/patients?date=${date}`)
+          if (!response.ok) return { date, planned: 0 }
+          const patients = await response.json() as Patient[]
+          return { date, planned: patients.length }
+        })
+      )
+
+      const next: Record<string, { max: number | null; planned: number; remaining: number | null }> = {}
+      plannedCounts.forEach(({ date, planned }) => {
+        const max = maxByDate[date] ?? null
+        next[date] = {
+          max,
+          planned,
+          remaining: max !== null ? Math.max(max - planned, 0) : null
+        }
+      })
+      setCapacityStatus(next)
+    } catch (error) {
+      console.error('Failed to load capacity status', error)
     }
+  }
+
+  useEffect(() => {
+    refreshCapacity(selectedDates)
   }, [selectedDates])
 
   const treatments = useMemo(() => {
@@ -400,6 +395,62 @@ export default function BehandelingenPage() {
       return sum + (Number.isFinite(count) ? count : 0)
     }, 0)
   }, [selectedDates, treatmentCounts, treatments])
+
+  const capacitySummary = useMemo(() => {
+    if (selectedDates.length === 0) return null
+    let totalMax = 0
+    let unknownCount = 0
+
+    selectedDates.forEach(date => {
+      const status = capacityStatus[date]
+      if (!status || status.max === null) {
+        unknownCount += 1
+        return
+      }
+      totalMax += status.max
+    })
+
+    if (totalMax === 0 && unknownCount > 0) {
+      return 'Capaciteit onbekend'
+    }
+
+    const base = `${totalSelectedTreatments}/${totalMax}`
+    if (unknownCount > 0) {
+      return `Capaciteit ${base} +?`
+    }
+    return `Capaciteit ${base}`
+  }, [selectedDates, capacityStatus, totalSelectedTreatments])
+
+  const handleTestSelectOverCapacity = () => {
+    if (selectedDates.length === 0) {
+      setSelectionWarning('Selecteer eerst één of meerdere datums in de agenda.')
+      return
+    }
+    const totalMax = selectedDates.reduce((sum, date) => {
+      const status = capacityStatus[date]
+      if (!status || status.max === null) return sum
+      return sum + status.max
+    }, 0)
+    if (totalMax === 0) {
+      setSelectionWarning('Capaciteit onbekend voor de geselecteerde datums.')
+      return
+    }
+    const targetTotal = totalMax + 10
+    const next: Record<string, number> = {}
+    const availableTreatments = treatments.filter(treatment => treatment.medicationId && Number.isFinite(treatment.treatmentNumber))
+    if (availableTreatments.length === 0) {
+      setSelectionWarning('Geen behandelingen beschikbaar om te selecteren.')
+      return
+    }
+    for (let i = 0; i < targetTotal; i++) {
+      const treatment = availableTreatments[i % availableTreatments.length]
+      next[treatment.id] = (next[treatment.id] || 0) + 1
+    }
+    setSelectionWarning('')
+    setSaveMessage('')
+    setSaveError('')
+    setTreatmentCounts(next)
+  }
 
   const buildSchedulingContext = async (dates: string[]) => {
     const existingPatientsByDate: Record<string, Patient[]> = {}
@@ -623,6 +674,7 @@ export default function BehandelingenPage() {
         setSelectionWarning('')
         setSaveMessage('')
       }
+      await refreshCapacity(selectedDates)
     } catch (error) {
       console.error('Failed to auto schedule treatments', error)
       setScheduleError('Automatisch inplannen mislukt.')
@@ -751,6 +803,7 @@ export default function BehandelingenPage() {
       } catch (error) {
         console.error('Failed to save scheduled treatments', error)
       }
+      await refreshCapacity(group.selectedDates)
     } catch (error) {
       console.error('Failed to reschedule plan group', error)
       setScheduleError('Opnieuw inplannen mislukt.')
@@ -813,6 +866,7 @@ export default function BehandelingenPage() {
         {selectedDates.length > 0 && (
           <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full">
             {selectedDates.length} datum(s) geselecteerd • {totalSelectedTreatments} behandeling(en)
+            {capacitySummary ? ` • ${capacitySummary}` : ''}
           </div>
         )}
       </div>
@@ -894,6 +948,14 @@ export default function BehandelingenPage() {
             <div className="mt-3 text-xs text-red-700">{selectionWarning}</div>
           )}
           {selectedDates.length > 0 && (
+            <button
+              onClick={handleTestSelectOverCapacity}
+              className="mt-3 text-xs text-blue-700 hover:text-blue-800 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full"
+            >
+              Test: selecteer 10 over capaciteit
+            </button>
+          )}
+          {selectedDates.length > 0 && (
             <div className="mt-3 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md p-2">
               <button
                 onClick={() => setIsCapacityCollapsed(prev => !prev)}
@@ -920,7 +982,7 @@ export default function BehandelingenPage() {
                         <div>
                           {status.max === null
                             ? `${status.planned} gepland • max onbekend`
-                            : `${status.planned} gepland • ${status.remaining} over (max ${status.max})`}
+                            : `${status.planned} gepland • ${status.planned} v/d ${status.max}`}
                         </div>
                       </div>
                     )

@@ -18,6 +18,9 @@ export interface Patient {
   scheduledDate: string // YYYY-MM-DD format (ISO 8601)
   medicationType: string
   treatmentNumber: number
+  noShow: boolean
+  lateCancellation: boolean
+  medicationDiscarded: boolean
   createdAt: Date
   updatedAt: Date
   actions: Action[]

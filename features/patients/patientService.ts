@@ -5,13 +5,23 @@ export async function createPatient(
   startTime: string,
   scheduledDate: string,
   medicationId: string,
-  treatmentNumber: number
+  treatmentNumber: number,
+  flags?: { noShow?: boolean; lateCancellation?: boolean; medicationDiscarded?: boolean }
 ): Promise<Patient | null> {
   try {
     const response = await fetch('/api/patients', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, startTime, scheduledDate, medicationType: medicationId, treatmentNumber }),
+      body: JSON.stringify({
+        name,
+        startTime,
+        scheduledDate,
+        medicationType: medicationId,
+        treatmentNumber,
+        noShow: flags?.noShow,
+        lateCancellation: flags?.lateCancellation,
+        medicationDiscarded: flags?.medicationDiscarded
+      }),
     })
 
     if (response.ok) {
@@ -56,6 +66,9 @@ export async function updatePatient(
     startTime?: string
     medicationType?: string
     treatmentNumber?: number
+    noShow?: boolean
+    lateCancellation?: boolean
+    medicationDiscarded?: boolean
   }
 ): Promise<Patient | null> {
   try {
@@ -73,4 +86,3 @@ export async function updatePatient(
     return null
   }
 }
-

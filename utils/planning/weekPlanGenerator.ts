@@ -1,5 +1,5 @@
 import { DayOfWeek, StaffMember, getDayOfWeekFromDate, getDailyPatientCapacity, formatDateToISO, getDepartmentHours } from '@/types'
-import { getAllMedications } from '@/types'
+import { getAllMedications, isLowPriorityMedication } from '@/types'
 import { generateActionsForMedication, calculateTotalTreatmentTime } from '../patients/actionGenerator'
 import { StaffScheduler } from '../staff/staffAssignment'
 import { ChairOccupancyTracker } from '../capacity/chairOccupancy'
@@ -100,6 +100,9 @@ export async function generateWeekPlan(
 
     // Sort treatments by duration (shorter first for better distribution)
     const sortedTreatments = dayTreatments.sort((a, b) => {
+      const aLow = isLowPriorityMedication(a.medicationId)
+      const bLow = isLowPriorityMedication(b.medicationId)
+      if (aLow !== bLow) return aLow ? 1 : -1
       const durationA = calculateTotalTreatmentTime(a.medicationId, a.treatmentNumber)
       const durationB = calculateTotalTreatmentTime(b.medicationId, b.treatmentNumber)
       return durationA - durationB

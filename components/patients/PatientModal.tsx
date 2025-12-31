@@ -9,11 +9,27 @@ import Select from '../common/Select'
 interface PatientModalProps {
   isOpen: boolean
   onClose: () => void
-  onSubmit: (name: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string, customInfusionMinutes?: number) => void
+  onSubmit: (
+    name: string,
+    startTime: string,
+    medicationId: string,
+    treatmentNumber: number,
+    preferredNurse?: string,
+    customInfusionMinutes?: number,
+    flags?: { noShow?: boolean; lateCancellation?: boolean; medicationDiscarded?: boolean }
+  ) => void
   selectedDate: string
   staffMembers: StaffMember[]
   editingPatient?: Patient | null
-  onUpdate?: (patientId: string, startTime: string, medicationId: string, treatmentNumber: number, preferredNurse?: string, customInfusionMinutes?: number) => void
+  onUpdate?: (
+    patientId: string,
+    startTime: string,
+    medicationId: string,
+    treatmentNumber: number,
+    preferredNurse?: string,
+    customInfusionMinutes?: number,
+    flags?: { noShow?: boolean; lateCancellation?: boolean; medicationDiscarded?: boolean }
+  ) => void
   onUpdateActionDuration?: (patientId: string, actionId: string, duration: number) => Promise<boolean>
 }
 
@@ -43,6 +59,9 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
   const [actionDurations, setActionDurations] = useState<Record<string, string>>({})
   const [actionUpdateMessage, setActionUpdateMessage] = useState<string>('')
   const [actionUpdateError, setActionUpdateError] = useState<string>('')
+  const [noShow, setNoShow] = useState(false)
+  const [lateCancellation, setLateCancellation] = useState(false)
+  const [medicationDiscarded, setMedicationDiscarded] = useState(false)
   
   // Get day of week from selected date
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
@@ -86,6 +105,9 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
           nextActionDurations[action.id] = String(action.duration)
         })
         setActionDurations(nextActionDurations)
+        setNoShow(Boolean(editingPatient.noShow))
+        setLateCancellation(Boolean(editingPatient.lateCancellation))
+        setMedicationDiscarded(Boolean(editingPatient.medicationDiscarded))
         setActionUpdateMessage('')
         setActionUpdateError('')
       } else {
@@ -97,6 +119,9 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
         setPreferredNurse(availableStaff[0]?.name || staffMembers[0]?.name || '')
         setCustomTotalMinutes('')
         setActionDurations({})
+        setNoShow(false)
+        setLateCancellation(false)
+        setMedicationDiscarded(false)
         setActionUpdateMessage('')
         setActionUpdateError('')
       }
@@ -172,6 +197,12 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
          finalInfusionMinutes = Math.max(1, Number(customTotalMinutes) - nonInfusionTime)
       }
 
+      const flags = {
+        noShow,
+        lateCancellation,
+        medicationDiscarded
+      }
+
       if (isEditing && editingPatient && onUpdate) {
         // Update existing patient
         onUpdate(
@@ -180,7 +211,8 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
           medicationId,
           treatmentNumber,
           undefined,
-          finalInfusionMinutes
+          finalInfusionMinutes,
+          flags
         )
       } else {
         // Create new patient
@@ -193,7 +225,8 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
           medicationId,
           treatmentNumber,
           undefined,
-          finalInfusionMinutes
+          finalInfusionMinutes,
+          flags
         )
       }
       onClose()
@@ -410,6 +443,39 @@ export default function PatientModal({ isOpen, onClose, onSubmit, selectedDate, 
                 </div>
               </div>
             )}
+
+            <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+              <h3 className="font-bold text-sm mb-3 text-slate-900">Status</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={noShow}
+                    onChange={(e) => setNoShow(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  No-show
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={lateCancellation}
+                    onChange={(e) => setLateCancellation(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Late annulering
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={medicationDiscarded}
+                    onChange={(e) => setMedicationDiscarded(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  Medicatie weggegooid
+                </label>
+              </div>
+            </div>
 
             <div className="flex gap-3 pt-4">
               <button

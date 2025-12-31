@@ -784,6 +784,21 @@ export function getMedicationById(id: string): Medication | undefined {
   return getAllMedications().find(m => m.id === id)
 }
 
+export function isLowPriorityMedication(id: string): boolean {
+  const medication = getMedicationById(id)
+  if (!medication) return false
+  if (medication.category === 'transfusion') return true
+  const label = `${medication.displayName ?? ''} ${medication.name ?? ''}`.toLowerCase()
+  return label.includes('zometa')
+}
+
+export function isCheckDisabledMedication(id: string): boolean {
+  const medication = getMedicationById(id)
+  if (!medication) return false
+  if (medication.category === 'transfusion') return true
+  return medication.id.startsWith('ocrelizumab')
+}
+
 export function getMedicationVariant(medicationId: string, treatmentNumber: number): MedicationVariant | undefined {
   const medication = getMedicationById(medicationId)
   if (!medication) return undefined

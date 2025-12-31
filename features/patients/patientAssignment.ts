@@ -199,7 +199,8 @@ export async function addPatientWithActions(
   showNotification?: ShowNotification,
   allowOverlaps: boolean = false,
   coordinatorName?: string,
-  customInfusionMinutes?: number
+  customInfusionMinutes?: number,
+  flags?: { noShow?: boolean; lateCancellation?: boolean; medicationDiscarded?: boolean }
 ): Promise<{ success: boolean; patient?: Patient }> {
   const dayOfWeek = getDayOfWeekFromDate(selectedDate)
   const medication = getMedicationById(medicationId)
@@ -209,7 +210,7 @@ export async function addPatientWithActions(
     return { success: false }
   }
 
-  const patient = await createPatient(name, startTime, selectedDate, medicationId, treatmentNumber)
+  const patient = await createPatient(name, startTime, selectedDate, medicationId, treatmentNumber, flags)
   if (!patient) {
     showNotification?.('Fout bij aanmaken patiënt', 'warning')
     return { success: false }

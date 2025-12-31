@@ -97,8 +97,7 @@ export async function POST(request: NextRequest) {
               data: normalizedStaffSchedules.map((s: any) => ({
                 dayOfWeek: s.dayOfWeek,
                 staffNames: s.staffNames
-              })),
-              skipDuplicates: true
+              }))
             }
           },
           treatments: {

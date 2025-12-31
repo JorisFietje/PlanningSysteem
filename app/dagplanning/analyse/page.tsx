@@ -462,6 +462,13 @@ export default function DashboardPage() {
     return `${formatDateDMY(sorted[0])} t/m ${formatDateDMY(sorted[sorted.length - 1])}`
   }, [selectedDates, selectedDate])
 
+  const statusSummary = useMemo(() => {
+    const noShows = plannedPatients.filter(patient => patient.noShow).length
+    const lateCancellations = plannedPatients.filter(patient => patient.lateCancellation).length
+    const discardedMedication = plannedPatients.filter(patient => patient.medicationDiscarded).length
+    return { noShows, lateCancellations, discardedMedication }
+  }, [plannedPatients])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -561,6 +568,24 @@ export default function DashboardPage() {
               </>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500 uppercase">No-show</div>
+          <div className="mt-2 text-2xl font-bold text-slate-900">{statusSummary.noShows}</div>
+          <div className="text-xs text-slate-500 mt-1">Geselecteerde periode</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500 uppercase">Late annulering</div>
+          <div className="mt-2 text-2xl font-bold text-slate-900">{statusSummary.lateCancellations}</div>
+          <div className="text-xs text-slate-500 mt-1">Geselecteerde periode</div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+          <div className="text-xs font-semibold text-slate-500 uppercase">Medicatie weggegooid</div>
+          <div className="mt-2 text-2xl font-bold text-slate-900">{statusSummary.discardedMedication}</div>
+          <div className="text-xs text-slate-500 mt-1">Geselecteerde periode</div>
         </div>
       </div>
 

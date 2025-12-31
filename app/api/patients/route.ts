@@ -36,7 +36,16 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { name, startTime, scheduledDate, medicationType, treatmentNumber } = body
+    const {
+      name,
+      startTime,
+      scheduledDate,
+      medicationType,
+      treatmentNumber,
+      noShow,
+      lateCancellation,
+      medicationDiscarded
+    } = body
 
     if (!name || !startTime || !scheduledDate || !medicationType) {
       return NextResponse.json(
@@ -51,7 +60,10 @@ export async function POST(request: NextRequest) {
         startTime,
         scheduledDate, // YYYY-MM-DD format
         medicationType,
-        treatmentNumber: treatmentNumber || 1
+        treatmentNumber: treatmentNumber || 1,
+        noShow: Boolean(noShow),
+        lateCancellation: Boolean(lateCancellation),
+        medicationDiscarded: Boolean(medicationDiscarded)
       },
       include: {
         actions: true
@@ -91,4 +103,3 @@ export async function DELETE(request: NextRequest) {
     )
   }
 }
-

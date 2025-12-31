@@ -122,6 +122,61 @@ export class StaffScheduler {
     )
   }
 
+  private getOverlapMinutes(startA: number, endA: number, startB: number, endB: number): number {
+    return Math.max(0, Math.min(endA, endB) - Math.max(startA, startB))
+  }
+
+  private getBucketsForRange(startMinutes: number, endMinutes: number): Array<{ start: number; end: number; overlap: number }> {
+    const buckets: Array<{ start: number; end: number; overlap: number }> = []
+    let bucketStart = Math.floor(startMinutes / 30) * 30
+    while (bucketStart < endMinutes) {
+      const bucketEnd = bucketStart + 30
+      const overlap = this.getOverlapMinutes(startMinutes, endMinutes, bucketStart, bucketEnd)
+      if (overlap > 0) {
+        buckets.push({ start: bucketStart, end: bucketEnd, overlap })
+      }
+      bucketStart += 30
+    }
+    return buckets
+  }
+
+  private getStaffLoadForBucket(staffName: string, bucketStart: number, bucketEnd: number): number {
+    return this.scheduledTasks.reduce((sum, task) => {
+      if (task.staff !== staffName) return sum
+      return sum + this.getOverlapMinutes(task.startTime, task.endTime, bucketStart, bucketEnd)
+    }, 0)
+  }
+
+  private getBucketImbalanceScore(
+    staffName: string,
+    buckets: Array<{ start: number; end: number; overlap: number }>
+  ): number {
+    return buckets.reduce((sum, bucket) => {
+      const loads = this.availability.map(staff => {
+        const baseLoad = this.getStaffLoadForBucket(staff.staff, bucket.start, bucket.end)
+        return staff.staff === staffName ? baseLoad + bucket.overlap : baseLoad
+      })
+      const maxLoad = loads.length > 0 ? Math.max(...loads) : 0
+      const minLoad = loads.length > 0 ? Math.min(...loads) : 0
+      return sum + (maxLoad - minLoad)
+    }, 0)
+  }
+
+  private getProjectedBucketScore(
+    staffName: string,
+    buckets: Array<{ start: number; end: number; overlap: number }>
+  ): { maxLoad: number; totalLoad: number } {
+    let maxLoad = 0
+    let totalLoad = 0
+    buckets.forEach(bucket => {
+      const currentLoad = this.getStaffLoadForBucket(staffName, bucket.start, bucket.end)
+      const projected = currentLoad + bucket.overlap
+      maxLoad = Math.max(maxLoad, projected)
+      totalLoad += projected
+    })
+    return { maxLoad, totalLoad }
+  }
+
   private getOverlapCount(staffName: string, startMinutes: number, endMinutes: number): number {
     return this.scheduledTasks.filter(task =>
       task.staff === staffName &&
@@ -316,6 +371,9 @@ export class StaffScheduler {
     if (this.isCoordinatorBlocked(fallbackStaff.staff, adjustedStart, adjustedStart + duration)) {
       return { staff: 'GEEN', actualStartTime: adjustedStartTime, wasDelayed: true }
     }
+    if (this.hasOverlappingTask(fallbackStaff.staff, adjustedStart, adjustedStart + duration)) {
+      return { staff: 'GEEN', actualStartTime: adjustedStartTime, wasDelayed: true }
+    }
 
     // Check if adjusted start would exceed staff's work time or closing
     if (
@@ -367,8 +425,8 @@ export class StaffScheduler {
     
     // Find ALL staff who have no overlapping tasks at this time AND are not excluded AND within working hours
     const availableStaff = this.availability.filter(s => {
-      // Do not overlap with an existing setup for this staff member
-      if (this.hasOverlappingSetupForStaff(s.staff, requestedMinutes, endMinutes)) return false
+      // Do not overlap with any existing task for this staff member
+      if (this.hasOverlappingTask(s.staff, requestedMinutes, endMinutes)) return false
       // Check if excluded
       if (excludeStaff && s.staff === excludeStaff) return false
       // Check if action would end within staff working hours
@@ -386,8 +444,18 @@ export class StaffScheduler {
       return { staff: 'GEEN', actualStartTime: requestedTime, wasDelayed: true }
     }
 
-    // From available staff, choose the one with least total workload
-    const bestStaff = availableStaff.sort((a, b) => a.totalWorkload - b.totalWorkload)[0]
+    const buckets = this.getBucketsForRange(requestedMinutes, endMinutes)
+    // From available staff, choose the one with least load in the affected half-hour buckets
+    const bestStaff = availableStaff.sort((a, b) => {
+      const aImbalance = this.getBucketImbalanceScore(a.staff, buckets)
+      const bImbalance = this.getBucketImbalanceScore(b.staff, buckets)
+      if (aImbalance !== bImbalance) return aImbalance - bImbalance
+      const aScore = this.getProjectedBucketScore(a.staff, buckets)
+      const bScore = this.getProjectedBucketScore(b.staff, buckets)
+      if (aScore.maxLoad !== bScore.maxLoad) return aScore.maxLoad - bScore.maxLoad
+      if (aScore.totalLoad !== bScore.totalLoad) return aScore.totalLoad - bScore.totalLoad
+      return a.totalWorkload - b.totalWorkload
+    })[0]
 
     // Schedule this task
     this.scheduleTask(bestStaff.staff, requestedMinutes, endMinutes, actionType)
@@ -402,7 +470,7 @@ export class StaffScheduler {
 
   /**
    * Relaxed assignment for non-setup actions when lunch capacity is the only blocker.
-   * Still avoids overlapping setup tasks for the same staff member.
+   * Still avoids overlapping tasks for the same staff member.
    */
   public assignStaffForActionRelaxed(
     actionType: string,
@@ -414,7 +482,7 @@ export class StaffScheduler {
     const endMinutes = requestedMinutes + duration
 
     const availableStaff = this.availability.filter(s => {
-      if (this.hasOverlappingSetupForStaff(s.staff, requestedMinutes, endMinutes)) return false
+      if (this.hasOverlappingTask(s.staff, requestedMinutes, endMinutes)) return false
       if (excludeStaff && s.staff === excludeStaff) return false
       if (s.maxWorkTime && endMinutes > (this.dayStartMinutes + s.maxWorkTime)) return false
       if (s.maxWorkloadMinutes && s.totalWorkload + duration > s.maxWorkloadMinutes) return false
@@ -426,7 +494,17 @@ export class StaffScheduler {
       return { staff: 'GEEN', actualStartTime: requestedTime, wasDelayed: true }
     }
 
-    const bestStaff = availableStaff.sort((a, b) => a.totalWorkload - b.totalWorkload)[0]
+    const buckets = this.getBucketsForRange(requestedMinutes, endMinutes)
+    const bestStaff = availableStaff.sort((a, b) => {
+      const aImbalance = this.getBucketImbalanceScore(a.staff, buckets)
+      const bImbalance = this.getBucketImbalanceScore(b.staff, buckets)
+      if (aImbalance !== bImbalance) return aImbalance - bImbalance
+      const aScore = this.getProjectedBucketScore(a.staff, buckets)
+      const bScore = this.getProjectedBucketScore(b.staff, buckets)
+      if (aScore.maxLoad !== bScore.maxLoad) return aScore.maxLoad - bScore.maxLoad
+      if (aScore.totalLoad !== bScore.totalLoad) return aScore.totalLoad - bScore.totalLoad
+      return a.totalWorkload - b.totalWorkload
+    })[0]
 
     this.scheduleTask(bestStaff.staff, requestedMinutes, endMinutes, actionType)
     this.updateStaffWorkload(bestStaff.staff, endMinutes, duration)

@@ -1,4 +1,4 @@
-import { getMedicationById, getMedicationVariant, Medication, MedicationVariant } from '@/types/medications'
+import { getMedicationById, getMedicationVariant, isCheckDisabledMedication, Medication, MedicationVariant } from '@/types/medications'
 
 export interface GeneratedAction {
   name: string
@@ -109,10 +109,11 @@ export function generateActionsForMedication(
       }
     }
     
-    // 2b. Generate checks during infusion (ONLY for Ocrelizumab and Blood transfusions)
+    // 2b. Generate checks during infusion ONLY when explicitly configured in the medicatie builder
     // NOTE: Checks worden TIJDENS het infuus uitgevoerd, niet na afloop
     // SKIP checks tijdens PC wisselen en vlak voor het einde (afkoppelen)
-    if (medication.checkInterval && medication.checkInterval > 0 && timing.infusionTime > medication.checkInterval) {
+    const hasConfiguredChecks = !isCheckDisabledMedication(medicationId) && Boolean(variant.actions?.some(action => action.type === 'check'))
+    if (hasConfiguredChecks && medication.checkInterval && medication.checkInterval > 0 && timing.infusionTime > medication.checkInterval) {
       const maxCheckTime = timing.infusionTime - 15 // No checks in last 15 minutes (during disconnection prep)
       let checkNumber = 0
       const checkDuration = 5 // Checks are always exactly 5 minutes

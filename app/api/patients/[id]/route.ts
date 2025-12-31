@@ -41,12 +41,15 @@ export async function PUT(
 ) {
   try {
     const body = await request.json()
-    const { startTime, medicationType, treatmentNumber } = body
+    const { startTime, medicationType, treatmentNumber, noShow, lateCancellation, medicationDiscarded } = body
 
     const updateData: any = {}
     if (startTime) updateData.startTime = startTime
     if (medicationType) updateData.medicationType = medicationType
     if (treatmentNumber !== undefined) updateData.treatmentNumber = treatmentNumber
+    if (noShow !== undefined) updateData.noShow = Boolean(noShow)
+    if (lateCancellation !== undefined) updateData.lateCancellation = Boolean(lateCancellation)
+    if (medicationDiscarded !== undefined) updateData.medicationDiscarded = Boolean(medicationDiscarded)
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json(
@@ -94,4 +97,3 @@ export async function DELETE(
     )
   }
 }
-

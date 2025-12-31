@@ -167,7 +167,8 @@ export default function PlanningPage() {
     medicationId: string,
     treatmentNumber: number,
     preferredNurse?: string,
-    customInfusionMinutes?: number
+    customInfusionMinutes?: number,
+    flags?: { noShow?: boolean; lateCancellation?: boolean; medicationDiscarded?: boolean }
   ) => {
     try {
       if (preferredNurse) {
@@ -197,7 +198,8 @@ export default function PlanningPage() {
         showNotification,
         false,
         coordinatorByDay[day] || undefined,
-        customInfusionMinutes
+        customInfusionMinutes,
+        flags
       )
 
       if (!result.success) {
@@ -234,7 +236,8 @@ export default function PlanningPage() {
     medicationId: string,
     treatmentNumber: number,
     preferredNurse?: string,
-    customInfusionMinutes?: number
+    customInfusionMinutes?: number,
+    flags?: { noShow?: boolean; lateCancellation?: boolean; medicationDiscarded?: boolean }
   ) => {
     try {
       const prevPatient = patients.find(p => p.id === patientId) || null
@@ -252,7 +255,10 @@ export default function PlanningPage() {
       const updatedPatient = await updatePatient(patientId, {
         startTime,
         medicationType: medicationId,
-        treatmentNumber
+        treatmentNumber,
+        noShow: flags?.noShow,
+        lateCancellation: flags?.lateCancellation,
+        medicationDiscarded: flags?.medicationDiscarded
       })
 
       if (!updatedPatient) {
