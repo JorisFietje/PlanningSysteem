@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatDateToISO, getAllMedications, getDayOfWeekFromDate, getMondayOfWeek, Patient, StaffMember } from '@/types'
 import { Medication } from '@/types/medications'
 import { useDagplanningContext } from '../layout'
@@ -62,6 +62,24 @@ export default function BehandelingenPage() {
   const [collapsedPlanGroups, setCollapsedPlanGroups] = useState<Record<string, boolean>>({})
   const [isCapacityCollapsed, setIsCapacityCollapsed] = useState(false)
   const [isScheduleCollapsed, setIsScheduleCollapsed] = useState(false)
+  const [overbookModal, setOverbookModal] = useState<{
+    isOpen: boolean
+    dates: string[]
+    remainingByDate: Record<string, number>
+    maxByDate: Record<string, number>
+    overflow: number
+    values: Record<string, string>
+    error: string
+  }>({
+    isOpen: false,
+    dates: [],
+    remainingByDate: {},
+    maxByDate: {},
+    overflow: 0,
+    values: {},
+    error: ''
+  })
+  const overbookResolverRef = useRef<((value: Record<string, number> | null) => void) | null>(null)
 
   const selectedSet = useMemo(() => new Set(selectedDates), [selectedDates])
 
@@ -252,7 +270,7 @@ export default function BehandelingenPage() {
   const refreshCapacity = async (dates: string[]) => {
     if (dates.length === 0) {
       setCapacityStatus({})
-      return
+      return {}
     }
 
     try {
@@ -293,8 +311,10 @@ export default function BehandelingenPage() {
         }
       })
       setCapacityStatus(next)
+      return next
     } catch (error) {
       console.error('Failed to load capacity status', error)
+      return {}
     }
   }
 
@@ -386,6 +406,58 @@ export default function BehandelingenPage() {
         }
       })
       .filter(item => item.medicationId && Number.isFinite(item.treatmentNumber))
+  }
+
+  const countRequestedTreatments = (requests: Array<{ medicationId: string; treatmentNumber: number; quantity: number }>) => {
+    return requests.reduce((sum, item) => sum + (Number.isFinite(item.quantity) ? item.quantity : 0), 0)
+  }
+
+  const requestOverbookByDate = (
+    dates: string[],
+    requestedCount: number,
+    existingPatientsByDate: Record<string, Patient[]>,
+    dayCapacityLimits: Record<string, number | null | undefined>,
+    plannedOverrides?: Record<string, number>
+  ): Promise<Record<string, number>> => {
+    if (dates.length === 0 || requestedCount <= 0) return Promise.resolve({})
+    let totalMax = 0
+    const remainingByDate: Record<string, number> = {}
+    const maxByDate: Record<string, number> = {}
+
+    dates.forEach(date => {
+      const max = dayCapacityLimits[date]
+      if (typeof max !== 'number') {
+        return
+      }
+      const planned = typeof plannedOverrides?.[date] === 'number'
+        ? plannedOverrides[date]
+        : (existingPatientsByDate[date]?.length || 0)
+      totalMax += max
+      remainingByDate[date] = Math.max(max - planned, 0)
+      maxByDate[date] = max
+    })
+
+    if (totalMax === 0) return Promise.resolve({})
+    const totalRemaining = Object.values(remainingByDate).reduce((sum, value) => sum + value, 0)
+    const overflow = requestedCount - totalRemaining
+    if (overflow <= 0) return Promise.resolve({})
+
+    return new Promise(resolve => {
+      const datesWithCapacity = dates.filter(date => remainingByDate[date] !== undefined)
+      setOverbookModal({
+        isOpen: true,
+        dates: datesWithCapacity,
+        remainingByDate,
+        maxByDate,
+        overflow,
+        values: datesWithCapacity.reduce((acc, date) => {
+          acc[date] = '0'
+          return acc
+        }, {} as Record<string, string>),
+        error: ''
+      })
+      overbookResolverRef.current = resolve
+    })
   }
 
   const totalSelectedTreatments = useMemo(() => {
@@ -550,13 +622,39 @@ export default function BehandelingenPage() {
         coordinatorByDate
       } = await buildSchedulingContext(selectedDates)
 
+      const freshCapacity = await refreshCapacity(selectedDates)
+      const normalizedDayCapacityLimits = { ...dayCapacityLimits }
+      const plannedOverrides: Record<string, number> = {}
+      selectedDates.forEach(date => {
+        if (typeof normalizedDayCapacityLimits[date] === 'number') return
+        const status = freshCapacity[date] || capacityStatus[date]
+        if (status && typeof status.max === 'number') {
+          normalizedDayCapacityLimits[date] = status.max
+        }
+      })
+      Object.entries(freshCapacity).forEach(([date, status]) => {
+        if (status && typeof status.planned === 'number') {
+          plannedOverrides[date] = status.planned
+        }
+      })
+
+      const requestedCount = countRequestedTreatments(treatmentRequests)
+      const overbookByDate = await requestOverbookByDate(
+        selectedDates,
+        requestedCount,
+        existingPatientsByDate,
+        normalizedDayCapacityLimits,
+        plannedOverrides
+      )
+
       const plan = scheduleTreatmentsAcrossDates(
         selectedDates,
         treatmentRequests,
         staffMembersByDate,
         coordinatorByDate,
         existingPatientsByDate,
-        dayCapacityLimits
+        normalizedDayCapacityLimits,
+        overbookByDate
       )
 
       const medications = getAllMedications()
@@ -712,13 +810,39 @@ export default function BehandelingenPage() {
         coordinatorByDate
       } = await buildSchedulingContext(group.selectedDates)
 
+      const freshCapacity = await refreshCapacity(group.selectedDates)
+      const normalizedDayCapacityLimits = { ...dayCapacityLimits }
+      const plannedOverrides: Record<string, number> = {}
+      group.selectedDates.forEach(date => {
+        if (typeof normalizedDayCapacityLimits[date] === 'number') return
+        const status = freshCapacity[date] || capacityStatus[date]
+        if (status && typeof status.max === 'number') {
+          normalizedDayCapacityLimits[date] = status.max
+        }
+      })
+      Object.entries(freshCapacity).forEach(([date, status]) => {
+        if (status && typeof status.planned === 'number') {
+          plannedOverrides[date] = status.planned
+        }
+      })
+
+      const requestedCount = countRequestedTreatments(group.requests)
+      const overbookByDate = await requestOverbookByDate(
+        group.selectedDates,
+        requestedCount,
+        existingPatientsByDate,
+        normalizedDayCapacityLimits,
+        plannedOverrides
+      )
+
       const plan = scheduleTreatmentsAcrossDates(
         group.selectedDates,
         group.requests,
         staffMembersByDate,
         coordinatorByDate,
         existingPatientsByDate,
-        dayCapacityLimits
+        normalizedDayCapacityLimits,
+        overbookByDate
       )
 
       const medications = getAllMedications()
@@ -851,6 +975,40 @@ export default function BehandelingenPage() {
     return scheduleResult.filter(item => selectedSet.has(item.date))
   }, [scheduleResult, selectedDates, selectedSet])
 
+  const handleOverbookCancel = () => {
+    setOverbookModal(prev => ({ ...prev, isOpen: false, error: '' }))
+    const resolver = overbookResolverRef.current
+    overbookResolverRef.current = null
+    if (resolver) resolver({})
+  }
+
+  const handleOverbookConfirm = () => {
+    const values = overbookModal.values
+    const parsed: Record<string, number> = {}
+    let total = 0
+    overbookModal.dates.forEach(date => {
+      const raw = values[date]
+      const amount = parseInt(raw, 10)
+      const safe = Number.isFinite(amount) ? Math.max(amount, 0) : 0
+      parsed[date] = safe
+      total += safe
+    })
+
+    if (total <= 0) {
+      setOverbookModal(prev => ({ ...prev, error: 'Geef minimaal 1 behandeling op of annuleer.' }))
+      return
+    }
+    if (total > overbookModal.overflow) {
+      setOverbookModal(prev => ({ ...prev, error: `Maximaal ${overbookModal.overflow} boven capaciteit toegestaan.` }))
+      return
+    }
+
+    setOverbookModal(prev => ({ ...prev, isOpen: false, error: '' }))
+    const resolver = overbookResolverRef.current
+    overbookResolverRef.current = null
+    if (resolver) resolver(parsed)
+  }
+
   return (
     !isMounted ? (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 h-full flex items-center justify-center text-sm text-slate-500">
@@ -870,6 +1028,87 @@ export default function BehandelingenPage() {
           </div>
         )}
       </div>
+
+      {overbookModal.isOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[10000] p-4"
+          onClick={handleOverbookCancel}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-lg w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-slate-50 border-b-2 border-slate-300 p-6 rounded-t-xl">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">Boven capaciteit plannen</h3>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Je zit {overbookModal.overflow} behandeling(en) boven de totale capaciteit. Verdeel de overschrijding per datum.
+                  </p>
+                </div>
+                <button
+                  onClick={handleOverbookCancel}
+                  className="text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg p-2 transition-colors"
+                  aria-label="Modal sluiten"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div className="p-6 space-y-3">
+              <div className="grid grid-cols-[120px_1fr_80px] gap-2 text-xs font-semibold text-slate-500 uppercase">
+                <span>Datum</span>
+                <span>Capaciteit</span>
+                <span>Boven</span>
+              </div>
+              <div className="space-y-2">
+                {overbookModal.dates.map(date => (
+                  <div key={date} className="grid grid-cols-[120px_1fr_80px] gap-2 items-center">
+                    <div className="text-sm text-slate-700">{formatDateDMY(date)}</div>
+                    <div className="text-sm text-slate-500">
+                      {overbookModal.remainingByDate[date]} over (max {overbookModal.maxByDate[date]})
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      value={overbookModal.values[date] ?? '0'}
+                      onChange={(e) =>
+                        setOverbookModal(prev => ({
+                          ...prev,
+                          values: { ...prev.values, [date]: e.target.value },
+                          error: ''
+                        }))
+                      }
+                      className="w-full px-2 py-1 rounded-md border border-slate-300 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+              {overbookModal.error && (
+                <div className="text-xs text-red-700">{overbookModal.error}</div>
+              )}
+            </div>
+            <div className="px-6 pb-6 flex gap-3 justify-end">
+              <button
+                onClick={handleOverbookCancel}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-semibold"
+              >
+                Annuleren
+              </button>
+              <button
+                onClick={handleOverbookConfirm}
+                className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-sm font-semibold"
+              >
+                Bevestigen
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2 p-6 overflow-hidden items-start grid-flow-dense">
         <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-3 h-fit w-full col-span-full sm:col-span-2 sm:row-span-5 sm:col-start-1 sm:row-start-1">

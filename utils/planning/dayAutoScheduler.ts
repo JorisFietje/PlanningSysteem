@@ -507,10 +507,15 @@ export function scheduleTreatmentsAcrossDates(
   staffMembersByDate: Record<string, StaffMember[]>,
   coordinatorByDate: Record<string, string | null>,
   existingPatientsByDate: Record<string, Patient[]>,
-  dayCapacityLimits: Record<string, number | null | undefined>
+  dayCapacityLimits: Record<string, number | null | undefined>,
+  overbookByDate: Record<string, number> = {}
 ): ScheduleResult {
   const scheduled: ScheduledPatient[] = []
   const skipped: Array<{ medicationId: string; treatmentNumber: number; reason: string }> = []
+  const remainingOverbookByDate: Record<string, number> = {}
+  Object.entries(overbookByDate).forEach(([date, count]) => {
+    remainingOverbookByDate[date] = Math.max(count, 0)
+  })
 
   const sortedDates = [...selectedDates].sort()
   const dayContexts: DayContext[] = sortedDates.map(date => {
@@ -577,7 +582,10 @@ export function scheduleTreatmentsAcrossDates(
   for (const treatment of remainingTreatments) {
     const contextsWithRoom = dayContexts.filter(context => {
       if (context.staff.length === 0) return false
-      return context.plannedCount < getMaxLimit(context)
+      const maxLimit = getMaxLimit(context)
+      if (!Number.isFinite(maxLimit)) return true
+      if (context.plannedCount < maxLimit) return true
+      return (remainingOverbookByDate[context.date] || 0) > 0
     })
 
     if (contextsWithRoom.length === 0) {
@@ -621,6 +629,11 @@ export function scheduleTreatmentsAcrossDates(
       }
 
       if (bestResult && bestSlot) {
+        const maxLimit = getMaxLimit(context)
+        const needsOverbook = Number.isFinite(maxLimit) && context.plannedCount >= maxLimit
+        if (needsOverbook && (remainingOverbookByDate[context.date] || 0) <= 0) {
+          continue
+        }
         const resolvedStartTime = bestResult.startTime || bestSlot
         context.tasks = [...context.tasks, ...bestResult.newTasks]
         context.occupancy = [
@@ -630,6 +643,9 @@ export function scheduleTreatmentsAcrossDates(
         context.plannedCount += 1
         context.lunchEarlyActions += bestResult.lunchEarlyActions
         context.lunchLateActions += bestResult.lunchLateActions
+        if (needsOverbook) {
+          remainingOverbookByDate[context.date] = Math.max((remainingOverbookByDate[context.date] || 0) - 1, 0)
+        }
         placed = true
 
         scheduled.push({
