@@ -138,22 +138,6 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
 
   return (
     <div className={containerClass}>
-      <style dangerouslySetInnerHTML={{__html: `
-        .patient-card::-webkit-scrollbar {
-          width: 4px;
-        }
-        .patient-card::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .patient-card::-webkit-scrollbar-thumb {
-          background-color: rgba(255, 255, 255, 0.5);
-          border-radius: 4px;
-        }
-        .patient-card {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(255, 255, 255, 0.5) transparent;
-        }
-      `}} />
       {showHeader && (
         <div className="flex items-center justify-between mb-4 pb-3 border-b">
           <h2 className="text-xl font-bold text-slate-900">Dagplanning</h2>
@@ -240,9 +224,7 @@ export default function ScheduleBoard({ patients, onAddPatient, onDeletePatient,
                     zIndex: 10 + pos.column,
                     minWidth: isExtremelyCompact ? '60px' : isVeryCompact ? '80px' : 'auto',
                     transformOrigin: 'center center',
-                    transform: 'scale(1)',
-                    overflowY: 'auto',
-                    overflowX: 'hidden'
+                    transform: 'scale(1)'
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.transform = 'scale(1.01)'
